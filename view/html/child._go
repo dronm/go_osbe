@@ -1,0 +1,173 @@
+package viewHTMLChild
+
+import (
+	"errors"
+	"os"
+	"io/ioutil"
+	"fmt"
+
+	"osbe/view"
+	"osbe/view/xml"
+	"osbe/response"
+	"osbe/socket"
+	"osbe/srv/httpSrv"
+)
+
+const (
+	VIEW_ID = "Child"
+	
+	"ModelsToHTML.html.xsl"
+)
+
+type OnTemplateTransformProto = func([]byte, string, string, string) ([]byte, error)
+type OnBeforeRenderProto = func(socket.ClientSocketer, *response.Response) (error)
+
+var v = &ViewHTMLChild{}
+
+type ViewHTML struct {
+	UserTemplateDir string
+	DefaultTemplate string
+	TemplateTransform OnTemplateTransformProto
+	BeforeRender OnBeforeRenderProto
+}
+
+//Parameters: UserTemplateDir (string), DefaultTemplate(string), TemplateTransform(OnTemplateTransformProto), BeforeRender(OnBeforeRenderProto)
+func (v *ViewHTML) Init(params []interface{}) (err error) {
+	if len(params) < 3 {
+		errors.New("parameters: UserTemplateDir, DefaultTemplate, TemplateTransform, BeforeRender not defined")
+	}
+	ok := false
+	if v.UserTemplateDir, ok = params[0].(string); !ok {
+		errors.New("parameter UserTemplateDir must be a string")
+	}
+	
+	if v.DefaultTemplate, ok = params[1].(string); !ok {
+		errors.New("parameter DefaultTemplate must be a string")
+	}
+	if v.TemplateTransform, ok = params[2].(OnTemplateTransformProto); !ok {
+		errors.New("parameter TemplateTransform must be of OnTemplateTransformProto type")
+	}
+	if len(params) <= 4 {
+		if v.BeforeRender, ok = params[3].(OnBeforeRenderProto); !ok {
+			errors.New("parameter BeforeRender must be of OnBeforeRenderProto type")
+		}
+	}	
+	return nil
+}
+
+func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) ([]byte, error){
+
+	if v.BeforeRender != nil {
+		//add extra models
+		if err := v.BeforeRender(sock, resp); err != nil {
+			return nil, err
+		}
+	}
+
+	//render xml
+	b, err := view.Render(viewXML.VIEW_ID, sock, resp)
+	if err != nil {
+		return nil, err
+	}
+	
+	//if no socket defined
+	if sock == nil{
+		return b, nil
+	}
+	
+	sock_http, ok := sock.(*httpSrv.HTTPSocket)
+	if !ok {
+		//not http socket
+		return b, nil
+	}
+	
+	//+header
+	if sock_http.Response != nil {
+		sock_http.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+	
+	//adding template
+	err_code := resp.GetCode()
+	sess := sock.GetSession()
+	role_id := sess.GetString("USER_ROLE")
+	
+	template_file := ""
+	
+	//error + role + user_tmpl		
+	if err_code != 0 && sock_http.TransformTemplateID != "" && role_id != "" {
+		fl := v.UserTemplateDir + "/" +  fmt.Sprintf("%s.Ex.%d.%s.html.xsl", sock_http.TransformTemplateID, err_code, role_id)
+		if file_exists(fl) {
+			template_file = fl
+		}
+	}
+	
+	//error + user_tmpl
+	if template_file == "" && err_code != 0 && sock_http.TransformTemplateID != "" {
+		fl := v.UserTemplateDir + "/" +  fmt.Sprintf("%s.Ex.%d.html.xsl", sock_http.TransformTemplateID, err_code)
+		if file_exists(fl) {
+			template_file = fl
+		}
+	}
+	
+	//user_tmpl + role
+	if template_file == "" && err_code == 0 && sock_http.TransformTemplateID != "" && role_id != "" {
+		fl := v.UserTemplateDir + "/" +  fmt.Sprintf("%s.%s.html.xsl", sock_http.TransformTemplateID, role_id)
+		if file_exists(fl) {
+			template_file = fl
+		}
+	}
+
+	//user_tmpl
+	if template_file == "" && err_code == 0 && sock_http.TransformTemplateID != "" {
+		fl := v.UserTemplateDir + "/" +  fmt.Sprintf("%s.html.xsl", sock_http.TransformTemplateID)
+		if file_exists(fl) {
+			template_file = fl
+		}
+	}
+
+	//default template
+	if template_file == "" && v.DefaultTemplate != "" {
+		if file_exists(v.DefaultTemplate) {
+			template_file = v.DefaultTemplate
+		}
+	}
+	
+	if template_file == "" {
+		return nil, errors.New("default template not found in template directory")
+	}
+	
+	//transformation
+	
+	//out file
+	html_file, err := ioutil.TempFile("", "html")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(html_file.Name())
+	
+	/*in_file, err := ioutil.TempFile("", "xml")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(in_file.Name())	
+	_, err := in_file.Write(b)
+	if err != nil {
+		return nil, err
+	}
+	*/
+	if _,err := v.TemplateTransform(b, "", template_file, html_file.Name()); err != nil {
+		return nil, err
+	}
+	
+	b, err = ioutil.ReadFile(html_file.Name())
+	if err != nil {
+		return nil, err
+	}
+	
+	return b, nil
+}
+
+func init() {
+	view.Register("Child", v)
+}
+

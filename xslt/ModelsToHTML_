@@ -1,0 +1,40 @@
+	<xsl:choose>
+	<xsl:when test="not(../sys_level_count)">
+		<!-- НЕТ span-->
+		<td align="{$td_align}" fieldId="{name()}"><xsl:value-of select="node()"/></td>
+	</xsl:when>
+	<xsl:when test="$pos = 1 and (number(../sys_level_count)=number(../sys_level_val))">
+		<!-- первоя строка,первая колонка -->
+		<xsl:choose>
+			<xsl:when test="number(../sys_level_count) &gt;= 2">
+			<td align="{$td_align}" fieldId="{name()}" colspan="{../sys_level_count}">Итого</td>
+			</xsl:when>
+			<xsl:otherwise>
+			<!-- NO SPAN -->
+			<td>Итого</td>
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:when>
+	<xsl:when test="$pos &lt; (number(../sys_level_count)-number(../sys_level_val))">
+		<td/>
+	</xsl:when>
+	<xsl:when test="$pos &lt;= (number(../sys_level_count)-number(../sys_level_val))">
+		<xsl:variable name="span_cnt" select="number(../sys_level_count) - $pos + 1"/>		
+		<xsl:choose>
+		<xsl:when test="$span_cnt &gt;= 2">
+			<td align="{$td_align}" fieldId="{name()}" colspan="{$span_cnt}"><xsl:value-of select="node()"/></td>
+		</xsl:when>
+		<xsl:otherwise>
+			<td align="{$td_align}" fieldId="{name()}"><xsl:value-of select="node()"/></td>
+		</xsl:otherwise>		
+		</xsl:choose>
+	</xsl:when>		
+	<xsl:when test="$pos &gt; number(../sys_level_count)">
+		<!-- Нужно выводить TD без спана-->
+		<td align="{$td_align}" fieldId="{name()}"><xsl:value-of select="node()"/></td>
+	</xsl:when>		
+	<xsl:otherwise>
+		<!-- Не нужен TD -->
+	</xsl:otherwise>
+	</xsl:choose>
+

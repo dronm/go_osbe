@@ -1,0 +1,51 @@
+13/01/22
+1) global_filter.go
+
+2) md.go
+Metadata +field GlobalFilter
+
+3) util.go
+
+Function signature changed from
+GetListOnArgs(app Applicationer, resp *response.Response, rfltArgs reflect.Value, scanStructMD fields.FieldCollection, scanStruct ObjectRow)
+to
+GetListOnArgs(app Applicationer, resp *response.Response, rfltArgs reflect.Value, scanStruct ObjectRowMD)
+scanStruct.GetFields() fields.FieldCollection
+
+Add type 
+type ObjectRowMD = interface {
+	GetDataTable() string
+	GetID() model.ModelID
+	GetFieldMD() fields.FieldCollection	
+}
+
+4) All models add function, returns variable
+func (m ) GetFieldMD() fields.FieldCollection {
+	return MODEL_ID_md
+}
+
+5)
+Function signature change
+from
+DeleteOnArgKeys(app Applicationer, pm PublicMethod, resp *response.Response, sock socket.ClientSocketer, rfltArgs reflect.Value, dataTable string) error {
+To
+DeleteOnArgKeys(app Applicationer, pm PublicMethod, resp *response.Response, sock socket.ClientSocketer, rfltArgs reflect.Value, model ObjectRowMD) error {
+DeleteOnArgKeysWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod, resp *response.Response, sock socket.ClientSocketer, rfltArgs reflect.Value, model ObjectRowMD) error {
+
+
+
++6) model.Model
+No short structure, no fields OrderSort etc
+
+
+7) Controller/Model initialization:
+add function to each controller:
+NewControler_ID() {
+	InitPublicMethods()
+}
+
+Model initialization GenMetadata() - from md.go init(), not from controllers!!!
+
+8) no ControllerID, ModelID types. make them strings
+
+

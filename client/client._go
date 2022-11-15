@@ -1,0 +1,219 @@
+package main
+
+//Программа читает настройки из clisnt.json
+//Устанавливает TCP соединение с сервером из настроек
+//Держит соединение, пока жив сервер
+//Постоянно читает файл command.txt, если он есть, выполняет содержимое и переименовывает файл в _command.txt
+
+import (
+	"fmt"
+	"net"
+	"encoding/binary"
+	"context"
+	"time"	
+	"io"
+	"io/ioutil"
+	"strings"
+	"os"
+	
+	"encoding/base64"
+)
+
+const (
+	PREF_PACKET_START byte = 0xFF	//Обязательный префикс начала пакета
+	PREF_PACKET_LAST byte = 0x0A	//Префикс последнего пакета, или единственного
+	PREF_PACKET_CONT byte = 0x0B	//Префикс пакета, закоторым последуют еще пакеты, тут будет только часть сообщения
+	POSTF_0 byte = 0x0A		//Постфикс
+	POSTF_1 byte = 0x0D 		//Постфикс
+	PREF_LEN uint32 = 10
+	POSTF_LEN uint32 = 2
+	
+)
+
+var packet_id uint32
+
+func main() {
+
+	/*if len(os.Args)<2 {
+		panic("Не найден аргумент с командой")
+	}*/
+
+	//чтение файла настроек
+	conf := AppConfig{}	
+	if err := conf.ReadConf("client.json"); err != nil {
+		panic(fmt.Sprintf("failed conf.ReadConf: %v",err))
+	}
+	
+	//Соединение, таймаут - 1 минута
+	var d net.Dialer
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	
+	//соединение с данными из настройки
+	//conf.Server = IP:PORT
+	conn, err := d.DialContext(ctx, "tcp", conf.Server)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to dial: %v", err))
+	}
+	defer conn.Close()
+
+	//msg := os.Args[1] //из параметров командной строки
+	
+	//сообщение для отправки из параметров командной строки
+	/*
+	cont, err := FileToStr("/home/andrey/www/htdocs/tpribor/build/TZ/МОЕ/ИмпортСигналов.xlsx")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to FileToStr: %v", err))
+	}
+	msg := `{"func":"OrderVersion.upload_signals", "argv": {"file_content":"`+string(cont)+`"}}`
+	
+	sendToServer(conn, msg)
+	*/
+
+	//проверка файла на существование, если есть - исполнение команды
+	go sendToServerFromFile(conn)
+
+	//вечный цикл ожидания ответа пока
+	readFromServer(conn)
+}
+
+func sendToServerFromFile(conn net.Conn){
+	for {
+		file, err := ioutil.ReadFile("command.txt")
+		if err == nil {
+			
+			lines := strings.Split(string(file),"\n")
+			for _,s := range lines {				
+				if s != "" {
+					//fmt.Println(s)
+					sendToServer(conn, s)
+				}
+			}
+			
+			os.Rename("command.txt", "_command.txt")
+		}	
+		
+		time.Sleep(2 * time.Second)
+	}
+}
+
+//Отправка сообщения на сервер
+func sendToServer(conn net.Conn, msg string) {
+
+	packet_len := uint32(len(msg))	
+	bf := make([]byte, PREF_LEN + packet_len + POSTF_LEN)
+	bf[0] = PREF_PACKET_START
+	bf[1] = PREF_PACKET_LAST
+	binary.LittleEndian.PutUint32(bf[2:6], packet_len)
+	binary.LittleEndian.PutUint32(bf[6:10], packet_id)		
+	copy(bf[PREF_LEN : PREF_LEN+packet_len], msg)
+	bf[PREF_LEN+packet_len] = POSTF_0
+	bf[PREF_LEN+packet_len+1] = POSTF_1
+
+	fmt.Println("Msg=", msg)
+	//fmt.Println("Msg=", bf)
+	//fmt.Println("packet_len=", packet_len)
+	//fmt.Println("packet_id=", packet_id)
+	
+	_, err := conn.Write(bf)
+	if err != nil {
+		panic(fmt.Sprintf("Failed conn.Write(): %v", err))
+	}
+	packet_id++
+
+}
+
+func readFromServer(conn net.Conn) {
+	//Буфер заголовка
+	head_b := make([]byte, PREF_LEN)
+	
+	for {				
+		_, err := conn.Read(head_b)
+		switch err {		
+		case nil:
+			//fmt.Println("Header:", head_b)
+			//prefix check
+			if head_b[0] != PREF_PACKET_START || (head_b[1] != PREF_PACKET_LAST && head_b[1] != PREF_PACKET_CONT) {
+				//wrong structute
+				fmt.Println("TCPServer.HandleConnection() wrong packet structure")
+				continue			
+			}
+
+			//Packet structure:
+			//PREFIX(2 bytes) + data length(2 bytes) + JSON data (=data length), POSTF(2 bytes)
+		
+			packet_len := binary.LittleEndian.Uint32(head_b[2:6])
+			payload_len := packet_len + POSTF_LEN
+			payload := make([]byte, payload_len) //Data + postfix
+			fmt.Println("Init buffer:", payload_len)	
+			to_read := payload_len
+			read_cnt := 0
+			var payload_full []byte //на случай, если не уместится все в один буфер
+			for to_read > 0 {
+				b_cnt, err := conn.Read(payload)
+				fmt.Println("ReadBytes=",b_cnt)				
+				to_read -= uint32(b_cnt)
+				switch err {
+				case nil:
+					//got message
+					if to_read == 0 {
+						//got full message
+						if payload[b_cnt-2] != POSTF_0 || payload[b_cnt-1] != POSTF_1 {
+							fmt.Println("read wrong packet postfix", payload[packet_len], payload[packet_len+1])
+							break
+						}
+						var response *[]byte
+						if read_cnt == 0 {
+							response = &payload
+						}else{
+							//concat data
+							payload_full = append(payload_full, payload[:b_cnt]...)
+							response = &payload_full
+						}
+						*response = (*response)[:packet_len]
+						fmt.Println("Ответ сервера:", string(*response))	
+						
+					}else{
+						//message part
+						if payload_full == nil {
+							payload_full = make([]byte, 0)
+						}
+						//concat data
+						payload_full = append(payload_full, payload[:b_cnt]...)
+						payload = make([]byte, to_read)
+					}
+											
+				case io.EOF:
+					fmt.Println("conn.Read closed")
+					
+				default:
+					fmt.Printf("failed conn.Read: %v\n", err)
+				}
+				read_cnt++										
+			}
+		case io.EOF:
+			fmt.Println("conn.Read closed")
+			return
+			
+		default:
+			fmt.Printf("failed conn.Read: %v\n", err)
+			return
+		}		
+		
+	}
+}
+
+func FileToStr(fileName string) ([]byte, error) {
+	cont, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return nil, err
+	}
+	return Base64Encode(cont), nil
+}
+
+func Base64Encode(message []byte) []byte {
+	b := make([]byte, base64.StdEncoding.EncodedLen(len(message)))
+	base64.StdEncoding.Encode(b, message)
+	return b
+}
+

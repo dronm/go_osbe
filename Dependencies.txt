@@ -1,0 +1,50 @@
+XXX
+osbe/permission
+Manager
+	Reload()
+	IsAllowed
+DbPool *pgxpool.Pool
+в App используется интерфейс Permissioner
+Manager
+Переделать на провайдера, конкретная реализация выбирается в конкретном app
+
+//*****************************
+XXX
+Db --->> ds
+PoolCon
+
+//*****************************
+sql_limit.go
+GetSQLLimitFromArgs(rfltArgs reflect.Value, scanModelMD *model.ModelMD, conn *pgx.Conn) (string, error)
+SELECT const_%s_val()
+
+sql_order_by
+NewSQLOrderByFromArgs(rfltArgs reflect.Value, fieldSep string) *SQLOrders
+GetSQLOrderByFromArgsOrDefault(rfltArgs reflect.Value, fieldSep string, modelMD *model.ModelMD) string
+GetSQLOrderByFromArgs(rfltArgs reflect.Value, fieldSep string) string
+GetSQLDefaultOrderBy(modelMD *model.ModelMD) string
+
+sql_where
+GetSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMD *model.ModelMD, extraConds sql.FilterCondCollection) (string, []interface{}, error)
+
+util.go
+pgx
+
+util_xml.go
+pgx
+QueryResultToXML()
+
+osbe/sql
+conditions.go
+FilterCond - Common structure
+
+
+osbe/evnt
+serv.go
+
+
+osbe/srv/http_srv/http_app
+AddMainMenuModel()
+AddAutoloadConstants()
+
+

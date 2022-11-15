@@ -1,0 +1,142 @@
+godoc -http=:6060
+http://localhost:6060/src/
+
+go doc pgxpool Conn
+
+///////////////////////////////////////////////////
+package pgxpool // import "github.com/jackc/pgx/pgxpool"
+
+type Pool struct {
+	// Has unexported fields.
+}
+
+func Connect(ctx context.Context, connString string) (*Pool, error)
+func ConnectConfig(ctx context.Context, config *Config) (*Pool, error)
+func (p *Pool) Acquire(ctx context.Context) (*Conn, error)
+func (p *Pool) AcquireAllIdle(ctx context.Context) []*Conn
+func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error)
+func (p *Pool) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+func (p *Pool) Close()
+func (p *Pool) Config() *Config
+func (p *Pool) CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, ...) (int64, error)
+func (p *Pool) Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
+func (p *Pool) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+func (p *Pool) QueryFunc(ctx context.Context, sql string, args []interface{}, scans []interface{}, ...) (pgconn.CommandTag, error)
+func (p *Pool) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+func (p *Pool) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+func (p *Pool) Stat() *Stat
+andrey@andrey-P5K-SE:~/go/src/osbe/test_app$ 
+
+//////////////////////////////////////////
+
+package pgxpool // import "github.com/jackc/pgx/pgxpool"
+
+type Conn struct {
+	// Has unexported fields.
+}
+    Conn is an acquired *pgx.Conn from a Pool.
+
+func (c *Conn) Begin(ctx context.Context) (pgx.Tx, error)
+func (c *Conn) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+func (c *Conn) Conn() *pgx.Conn
+func (c *Conn) CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, ...) (int64, error)
+func (c *Conn) Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
+func (c *Conn) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+func (c *Conn) QueryFunc(ctx context.Context, sql string, args []interface{}, scans []interface{}, ...) (pgconn.CommandTag, error)
+func (c *Conn) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+func (c *Conn) Release()
+func (c *Conn) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+
+
+
+/////////////////////////////////////////////
+package pgx // import "github.com/jackc/pgx"
+
+type Conn struct {
+	// Has unexported fields.
+}
+    Conn is a PostgreSQL connection handle. It is not safe for concurrent usage.
+    Use a connection pool to manage access to multiple database connections from
+    multiple goroutines.
+
+func Connect(ctx context.Context, connString string) (*Conn, error)
+func ConnectConfig(ctx context.Context, connConfig *ConnConfig) (*Conn, error)
+func (c *Conn) Begin(ctx context.Context) (Tx, error)
+func (c *Conn) BeginTx(ctx context.Context, txOptions TxOptions) (Tx, error)
+func (c *Conn) Close(ctx context.Context) error
+func (c *Conn) Config() *ConnConfig
+func (c *Conn) ConnInfo() *pgtype.ConnInfo
+func (c *Conn) CopyFrom(ctx context.Context, tableName Identifier, columnNames []string, ...) (int64, error)
+func (c *Conn) Deallocate(ctx context.Context, name string) error
+func (c *Conn) Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
+func (c *Conn) IsClosed() bool
+func (c *Conn) PgConn() *pgconn.PgConn
+func (c *Conn) Ping(ctx context.Context) error
+func (c *Conn) Prepare(ctx context.Context, name, sql string) (sd *pgconn.StatementDescription, err error)
+func (c *Conn) Query(ctx context.Context, sql string, args ...interface{}) (Rows, error)
+func (c *Conn) QueryFunc(ctx context.Context, sql string, args []interface{}, scans []interface{}, ...) (pgconn.CommandTag, error)
+func (c *Conn) QueryRow(ctx context.Context, sql string, args ...interface{}) Row
+func (c *Conn) SendBatch(ctx context.Context, b *Batch) BatchResults
+func (c *Conn) StatementCache() stmtcache.Cache
+func (c *Conn) WaitForNotification(ctx context.Context) (*pgconn.Notification, error)
+
+////////////////////////////////////////////////////////////////////////////////////////
+package pgx // import "github.com/jackc/pgx"
+
+type Rows interface {
+	// Close closes the rows, making the connection ready for use again. It is safe
+	// to call Close after rows is already closed.
+	Close()
+
+	// Err returns any error that occurred while reading.
+	Err() error
+
+	// CommandTag returns the command tag from this query. It is only available after Rows is closed.
+	CommandTag() pgconn.CommandTag
+
+	FieldDescriptions() []pgproto3.FieldDescription
+
+	// Next prepares the next row for reading. It returns true if there is another
+	// row and false if no more rows are available. It automatically closes rows
+	// when all rows are read.
+	Next() bool
+
+	// Scan reads the values from the current row into dest values positionally.
+	// dest can include pointers to core types, values implementing the Scanner
+	// interface, and nil. nil will skip the value entirely.
+	Scan(dest ...interface{}) error
+
+	// Values returns the decoded row values.
+	Values() ([]interface{}, error)
+
+	// RawValues returns the unparsed bytes of the row values. The returned [][]byte is only valid until the next Next
+	// call or the Rows is closed. However, the underlying byte data is safe to retain a reference to and mutate.
+	RawValues() [][]byte
+}
+    Rows is the result set returned from *Conn.Query. Rows must be closed before
+    the *Conn can be used again. Rows are closed by explicitly calling Close(),
+    calling Next() until it returns false, or when a fatal error occurs.
+
+    Once a Rows is closed the only methods that may be called are Close(),
+    Err(), and CommandTag().
+
+    Rows is an interface instead of a struct to allow tests to mock Query.
+    However, adding a method to an interface is technically a breaking change.
+
+//////////////////////////////////////////////////////////////////////////////////////
+package pgx // import "github.com/jackc/pgx"
+
+type Row interface {
+	// Scan works the same as Rows. with the following exceptions. If no
+	// rows were found it returns ErrNoRows. If multiple rows are returned it
+	// ignores all but the first.
+	Scan(dest ...interface{}) error
+}
+    Row is a convenience wrapper over Rows that is returned by QueryRow.
+
+    Row is an interface instead of a struct to allow tests to mock QueryRow.
+    However, adding a method to an interface is technically a breaking change.
+    Because of this the Row interface is partially excluded from semantic
+    version requirements. Methods will not be removed or changed, but new
+    methods may be added.
+

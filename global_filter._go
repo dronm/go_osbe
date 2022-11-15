@@ -1,0 +1,34 @@
+package osbe
+
+//implements global filtration
+//GlobalFilter is a set of conditions for userID/roleID/modelID that are applied implicitly
+//in all insert/update/delete/complete/select queries called from controller methods (insert/update/get_object/get_list/delete)
+//implicitly added as extra sql conditions(update/delete/complete/select) or predefined values(insert)
+
+//Key = modelID + roleID + userID
+type GlobalFilter struct {
+	m map[string]SQLCondCollection
+}
+
+func (c *GlobalFilter) Get(modelID, roleID, userID string) SQLCondCollection {
+	if f, ok := c.m[modelID + roleID + userID]; ok {
+		return f
+	}
+	return nil
+}
+
+func (c *GlobalFilter) Add(modelID, roleID, userID string) {
+	c.m[modelID + roleID + userID] = make([]osbe.SQLCondCollection,0)
+}
+
+func (c *GlobalFilter) Set(modelID, roleID, userID string, cond SQLCond) {
+	id := modelID + roleID + userID
+	if _, ok := c.m[id]; ok {
+		c.m[id] = append(c.m[id], cond)
+	}
+}
+
+func NewGlobalFilter() *GlobalFilter{
+	return &GlobalFilter{m: make(map[string]SQLCondCollection)}
+}
+

@@ -1,0 +1,27 @@
+package fields
+
+import (
+	//"encoding/utf8"
+	"errors"
+	"fmt"
+)
+
+//***** Metadata text field:strings/texts ******************
+type FieldEnum struct {
+	Field
+	EnumID string
+}
+func (f *FieldEnum) GetDataType() FieldDataType {
+	return FIELD_TYPE_ENUM
+}
+type FielderEnum interface {
+	Fielder
+}
+
+//String validaion
+func ValidateEnum(f FielderEnum, val string) error {
+
+	return nil
+}
+
+

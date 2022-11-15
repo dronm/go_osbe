@@ -1,0 +1,1 @@
+{"func":"Test.get_list", "argv": {"cond_fields":"f2","cond_sgns":"lk","cond_vals":"%текст%"}}

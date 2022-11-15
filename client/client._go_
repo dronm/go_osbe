@@ -1,0 +1,41 @@
+package client
+
+import (
+	"fmt"
+	"net"
+	"context"
+	"time"
+)
+
+const (
+	PREF_PACKET_START byte = 0xFF	//Обязательный префикс начала пакета
+	PREF_PACKET_LAST byte = 0x0A	//Префикс последнего пакета, или единственного
+	PREF_PACKET_CONT byte = 0x0B	//Префикс пакета, за которым последуют еще пакеты, тут будет только часть сообщения
+	POSTF_0 byte = 0x0A		//Постфикс
+	POSTF_1 byte = 0x0D 		//Постфикс
+	PREF_LEN uint32 = 10
+	POSTF_LEN uint32 = 2
+	
+)
+
+type OsbeClient struct {	
+	PacketID uint32
+}
+
+//Отправка сообщения на сервер
+func (c *OsbeClient) prepareMessage(msg string) *[]byte {
+
+	packet_len := uint32(len(msg))	
+	bf := make([]byte, PREF_LEN + packet_len + POSTF_LEN)
+	bf[0] = PREF_PACKET_START
+	bf[1] = PREF_PACKET_LAST
+	binary.LittleEndian.PutUint32(bf[2:6], packet_len)
+	binary.LittleEndian.PutUint32(bf[6:10], c.PacketID)		
+	copy(bf[PREF_LEN : PREF_LEN+packet_len], msg)
+	bf[PREF_LEN+packet_len] = POSTF_0
+	bf[PREF_LEN+packet_len+1] = POSTF_1
+
+	c.PacketID++
+	return &bf
+}
+

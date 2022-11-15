@@ -1,0 +1,17 @@
+{
+"logLevel":"debug",
+"db":{
+	"primary":"postgresql://postgres@localhost:5432/test_proj",
+	"secondaries":{
+		"localhost":"postgresql://postgres@localhost:5432/test_proj"
+	}
+},
+"wsServer":"localhost:59000",
+"session":{
+	"encKey":"2fgV65sh465Fh4054Nhryn4dty54nH5d4j6G41c356j4T5h1g76dtYj0",
+	"maxLifeTime":3600,
+	"maxIdleTime":3600
+},
+"reportErrors":true,
+"appId":"test_proj"
+}

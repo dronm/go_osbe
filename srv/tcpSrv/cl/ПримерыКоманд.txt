@@ -1,0 +1,14 @@
+Наложены след. огранчения:
+f1 - integer, max value= 100
+f3 - text, max length= 20
+f4 -boolena, required
+
+{"func":"Test.insert", "argv": {"f1":85, "f2":"Строка текста","f4":false}}
+
+{"func":"Test.get_object", "argv": {"id":51}}
+
+{"func":"Event.subscribe", "argv": {"events":[{"id":"Test.insert"},{"id":"Test.delete"},{"id":"Test.update"}]}}
+
+{"func":"Test.update", "argv": {"old_id":51, "f2":"Новый текст"}}
+
+{"func":"Test.get_list", "argv": {"cond_fields":"f2","cond_sgns":"lk","cond_vals":"%текст%"}}

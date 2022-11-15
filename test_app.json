@@ -1,0 +1,6 @@
+{
+"logLevel":"debug",
+"storageConnection":"postgresql://postgres@localhost:5432/test_proj",
+"wsServer":"localhost:59000",
+"appId":"test_proj"
+}
