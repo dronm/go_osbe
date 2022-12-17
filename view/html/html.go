@@ -223,7 +223,7 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		}
 	}
 
-	//default server template for html is not used any maore
+	//default server template for html is not used any more
 	//if template_file == ""  && view.FileExists(v.SrvTemplateDir + "/" + DEF_SRV_TEMPLATE + "." + v.TemplateExtension) {
 	//	template_file = v.SrvTemplateDir + "/" + DEF_SRV_TEMPLATE + "." + v.TemplateExtension
 	//}

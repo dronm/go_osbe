@@ -54,6 +54,7 @@ type Applicationer interface {
 	GetDataStorage() interface{}
 	PublishPublicMethodEvents(PublicMethod, map[string]interface{})
 	GetEncryptKey() string
+	GetBaseDir() string
 }
 
 type ServerList map[string]srv.Server
@@ -69,6 +70,7 @@ type Application struct {
 	OnPublishEvent OnPublishEventProto
 	DataStorage interface{}
 	EncryptKey string
+	BaseDir string
 }
 
 func (a *Application) GetConfig()  AppConfiger{
@@ -307,6 +309,9 @@ func (a *Application) GetDataStorage() interface{}{
 
 func (a *Application) GetEncryptKey() string{
 	return a.EncryptKey
+}
+func (a *Application) GetBaseDir() string{
+	return a.BaseDir
 }
 
 /*func (a *Application) GetServerPool() *db.ServerPool{

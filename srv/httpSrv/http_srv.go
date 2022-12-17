@@ -36,7 +36,7 @@ const (
 	DEF_USER_TRANSFORM_CLASS_ID =  "ViewBase"
 	DEF_GUEST_TRANSFORM_CLASS_ID =  "Login"
 	
-	DEF_MULTYPART_MAX_MEM = 256
+	DEF_MULTYPART_MAX_MEM = 256 //32 << 20
 	
 	CONTENT_DISPOSITION_ATTACHMENT CONTENT_DISPOSITION = "attachment"
 	CONTENT_DISPOSITION_INLINE CONTENT_DISPOSITION = "inline"
@@ -141,7 +141,7 @@ func (s *HTTPServer) Run() {
 }
 
 //parses query params based on query method, queryParams always non-nil map
-func (s *HTTPServer) parseQueryParams(r *http.Request, queryParams *url.Values) {
+func (s *HTTPServer) parseQueryParams(r *http.Request, queryParams *url.Values) error {
 	if r.Method == http.MethodGet {
 		*queryParams = r.URL.Query()
 	}else{
@@ -153,13 +153,16 @@ func (s *HTTPServer) parseQueryParams(r *http.Request, queryParams *url.Values) 
 			}else{
 				mem = s.MultypartMaxMemory
 			}
-			r.ParseMultipartForm(mem)
+			if err := r.ParseMultipartForm(mem); err != nil {
+				return err
+			}
 			*queryParams = r.MultipartForm.Value
 		}else{
 			r.ParseForm()
 			*queryParams = r.Form
 		}
 	}
+	return nil
 }
 
 func (s *HTTPServer) checkExtension(ext string) bool {
@@ -185,7 +188,10 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			}
 			if sh_cut, ok := s.URLShortcuts[path]; ok {
 				//Shortcuts - predefined paths
-				s.parseQueryParams(r, &sock.QueryParams)
+				if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
 							
 				sock.QueryParams.Add(PARAM_CONTROLLER, sh_cut.ControllerID)
 				sock.QueryParams.Add(PARAM_METH, sh_cut.MethodID)
@@ -209,7 +215,11 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			
 			if len(path_parts) >= 2 {		
 				//schema: controller/method/view
-				s.parseQueryParams(r, &sock.QueryParams)			
+				if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				
 				sock.QueryParams.Add(PARAM_CONTROLLER, path_parts[1])
 				if len(path_parts) >= 3 {
 					sock.QueryParams.Add(PARAM_METH, path_parts[2])
@@ -227,7 +237,10 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}else{
-		s.parseQueryParams(r, &sock.QueryParams)
+		if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}	
 	
 	sock.Token, sock.TokenExpires = extractParam(r, sock.QueryParams, PARAM_TOKEN)
