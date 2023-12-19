@@ -81,17 +81,10 @@ func (s *EvntSocket) Close() {
 	s.Conn.Close()
 }
 
-func (s *EvntSocket) GetConn() net.Conn{
-	return s.Conn
-}
-
-func (s EvntSocket) GetToken() string{
-	return s.Token
-}
-
 //id string, ID: id,
 func NewClientSocket(conn net.Conn, token string, tokenExp time.Time, srv EventServer) socket.ClientSocketer{
-	return &EvntSocket{socket.ClientSocket{			
+	return &EvntSocket{socket.ClientSocket{
+			ID: socket.GenSocketID(),
 			Conn: conn,
 			Token: token,
 			TokenExpires: tokenExp,

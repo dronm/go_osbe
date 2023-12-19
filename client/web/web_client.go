@@ -5,6 +5,7 @@ import(
 	"net/http"
 	"io"
 	"os"
+	"errors"
 )
 
 const (
@@ -18,7 +19,7 @@ type WebClient struct {
 	Token string
 }
 
-func GetQueryString(contr, meth, view, tmpl string, params map[string]interface{}) string {
+func GetQueryString(contr, meth, view, tmpl, token string, params map[string]interface{}) string {
 
 	if params == nil && (contr != "" || meth != "" || view != "" || tmpl != "") {
 		params = make(map[string]interface{})
@@ -34,6 +35,9 @@ func GetQueryString(contr, meth, view, tmpl string, params map[string]interface{
 	}
 	if tmpl != "" {
 		params["t"] = tmpl
+	}
+	if token != "" {
+		params["token"] = token
 	}
 	
 	cmd := ""
@@ -61,6 +65,12 @@ func GetQueryString(contr, meth, view, tmpl string, params map[string]interface{
 }
 
 func (c *WebClient) SendGet(contr, meth, view, tmpl string, params map[string]interface{}) error {
+	if c.Server == "" {
+		return errors.New("server param not set")
+	}
+	if c.Token == "" {
+		return errors.New("token param not set")
+	}
 	
 	if c.Server[:len(HTTP_PREF)] != HTTP_PREF && c.Server[:len(HTTPS_PREF)] != HTTPS_PREF {
 		c.Server = HTTP_PREF + c.Server
@@ -73,8 +83,8 @@ func (c *WebClient) SendGet(contr, meth, view, tmpl string, params map[string]in
 	if view == "" {
 		view = DEF_VIEW
 	}
-	url := c.Server + "?" + GetQueryString(contr, meth, view, tmpl, params)
-	
+	url := c.Server + "?" + GetQueryString(contr, meth, view, tmpl, c.Token, params)
+
 	resp, err := http.Get(url) 
 	if err != nil { 
 		return err

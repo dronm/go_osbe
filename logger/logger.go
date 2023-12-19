@@ -10,6 +10,6 @@ type Logger interface {
 	Warnf(string, ...interface{})
 	Warn(...interface{})
 	Infof(string, ...interface{})
-	Info(...interface{})	
+	Info(...interface{})
 }
 

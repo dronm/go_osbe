@@ -4,26 +4,26 @@ type FieldDataType byte
 
 const(
 	FIELD_TYPE_BOOL FieldDataType = iota
-	FIELD_TYPE_CHAR
-	FIELD_TYPE_STRING
-	FIELD_TYPE_INT
-	FIELD_TYPE_DATE
-	FIELD_TYPE_TIME
-	FIELD_TYPE_TIMETZ
-	FIELD_TYPE_DATETIME
-	FIELD_TYPE_DATETIMETZ
-	FIELD_TYPE_FLOAT
-	FIELD_TYPE_TEXT
-	FIELD_TYPE_ENUM
-	FIELD_TYPE_PASSWORD
-	FIELD_TYPE_INTERVAL
-	FIELD_TYPE_JSON
-	FIELD_TYPE_JSONB
-	FIELD_TYPE_ARRAY
-	FIELD_TYPE_BYTEA
-	FIELD_TYPE_XML
-	FIELD_TYPE_GEOMPOLYGON
-	FIELD_TYPE_GEOMPOINT	
+	FIELD_TYPE_CHAR		//1
+	FIELD_TYPE_STRING	//2
+	FIELD_TYPE_INT		//3
+	FIELD_TYPE_DATE		//4
+	FIELD_TYPE_TIME		//5
+	FIELD_TYPE_TIMETZ	//6
+	FIELD_TYPE_DATETIME	//7
+	FIELD_TYPE_DATETIMETZ	//8
+	FIELD_TYPE_FLOAT	//9
+	FIELD_TYPE_TEXT		//10
+	FIELD_TYPE_ENUM		//11
+	FIELD_TYPE_PASSWORD	//12
+	FIELD_TYPE_INTERVAL	//13
+	FIELD_TYPE_JSON		//14
+	FIELD_TYPE_JSONB	//15
+	FIELD_TYPE_ARRAY	//16
+	FIELD_TYPE_BYTEA	//17
+	FIELD_TYPE_XML		//18
+	FIELD_TYPE_GEOMPOLYGON	//19
+	FIELD_TYPE_GEOMPOINT	//20
 )
 	
 //Base metadata field
@@ -51,6 +51,7 @@ type Field struct {
 	NoValueOnCopy bool
 	OrderInList byte //to preserve order for getting comma separated list for select queries
 	Encrypted bool
+	FieldIndex int
 }
 func (f *Field) GetId() string {
 	return f.Id
@@ -111,6 +112,10 @@ func (f *Field) GetAutoInc() bool {
 func (f *Field) GetSysCol() bool {
 	return f.SysCol
 }
+func (f *Field) SetSysCol(v bool) {
+	f.SysCol = v
+}
+
 func (f *Field) GetDbRequired() bool {
 	return f.DbRequired
 }
@@ -135,6 +140,10 @@ func (f *Field) GetEnumId() string {
 func (f *Field) GetPrecision() int {
 	return f.Precision
 }
+func (f *Field) SetPrecision(v int) {
+	f.Precision = v
+}
+
 func (f *Field) GetRegFieldType() string {
 	return f.RegFieldType
 }
@@ -143,6 +152,9 @@ func (f *Field) GetRetAfterInsert() bool {
 }
 func (f *Field) GetNoValueOnCopy() bool {
 	return f.NoValueOnCopy
+}
+func (f *Field) SetNoValueOnCopy(v bool) {
+	f.NoValueOnCopy = v
 }
 func (f *Field) GetOrderInList() byte {
 	return f.OrderInList
@@ -163,6 +175,12 @@ func (f *Field) GetDefOrderIndex() byte {
 func (f *Field) SetDefOrderIndex(v byte) {
 	f.DefOrderIndex = v
 }
+func (f *Field) GetFieldIndex() int {
+	return f.FieldIndex
+}
+func (f *Field) SetFieldIndex(v int) {
+	f.FieldIndex = v
+}
 
 
 //Base interface
@@ -180,11 +198,13 @@ type Fielder interface {
 	SetPrimaryKey(bool)
 	GetAutoInc() bool
 	GetSysCol() bool
+	SetSysCol(bool)
 	GetDbRequired() bool
 	GetDisplay() bool
 	GetRegFieldType() string
 	GetRetAfterInsert() bool
 	GetNoValueOnCopy() bool	
+	SetNoValueOnCopy(bool)
 	GetDefOrder() ParamBool
 	SetDefOrder(v ParamBool)
 	GetOrderInList() byte
@@ -193,6 +213,8 @@ type Fielder interface {
 	SetDefOrderIndex(byte)
 	SetEncrypted(bool)
 	GetEncrypted() bool
+	SetFieldIndex(int)
+	GetFieldIndex() int
 }
 
 type FieldCollection map[string]Fielder

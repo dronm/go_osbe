@@ -4,24 +4,31 @@ import(
 	"time"
 	
 	"osbe/model"
-//	"osbe/fields"
 )
+
+// This file describes MD object. MD object holds descriptions of
+// application objects: controllers, models, constants, enums.
+// Actually it holds collections of these objects.
 
 const (
-	DEF_FIELD_SEP = "@@"
+	DEF_FIELD_SEP = "@@" //default field separator used by clients
 )
 
+// VersionType structures holds metadata version information.
 type VersionType struct {
-	DateOpen time.Time
-	DateClose time.Time
-	Value string
+	DateOpen time.Time	// open for modification timestamp
+	DateClose time.Time	// close version timestamp
+	Value string		// version value
 }
 
+// ModelMDCollection
 type ModelMDCollection map[string]*model.ModelMD
 
+// Metadata is the metadata structure.
+// Maps metadata.xml file.
 type Metadata struct {
 	Debug bool
-	Owner string
+	Owner string				// holds owner information
 	DataSchema string
 	Version VersionType
 	Controllers ControllerCollection
@@ -29,8 +36,8 @@ type Metadata struct {
 	Enums EnumCollection
 	Constants ConstantCollection
 }
-
-func NewMetadata() *Metadata{
+// NewMetadata creates new Metadata object
+func NewMetadata() *Metadata {
 	return &Metadata{Controllers: make(ControllerCollection),
 			Constants: make(ConstantCollection),
 			Models: make(ModelMDCollection),

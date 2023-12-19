@@ -48,6 +48,7 @@ func AddCondExpr(field string, sgn SQLCondition, ic bool, ind int, cond string, 
 	}
 	if ic {
 		*sql += fmt.Sprintf("(lower(%s::text) %s lower($%d::text))", field, sgn, ind+1)
+		
 	}else{
 		*sql += fmt.Sprintf("(%s %s $%d)", field, sgn, ind+1)
 	}

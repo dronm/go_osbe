@@ -1,0 +1,94 @@
+X sessions
+
+X srv/ws
+
+X stat
+
+X socket
+
+X tokenBlock
+
+mapping
+
+app
+
+events
+
+****************************************
+Это пофиксил введением парамтера lsn
+Проблема невозможности чтения с реплики после события insert/update
+master
+select write_lsn from pg_stat_replication;
+select pg_current_wal_lsn();
+
+replica
+select received_lsn from pg_stat_wal_receiver;
+
+select pg_wal_lsn_diff((select received_lsn from pg_stat_wal_receiver), '53E/1FF74908')
+must be >0 on slave!
+1) On Event add to params 'lsn': (SELECT pg_current_wal_lsn())
+2) On slave:
+javascript must add lsn parameter to select query (get_list)
+	- if it is read query, from slave
+	- got param lsn 
+	- SELECT pg_wal_lsn_diff( (SELECT received_lsn FROM pg_stat_wal_receiver), LSN_PARAM) >= 0 - slave fits,
+			otherwise it is behind, does not yet have server updates
+			
+НЕ РЕШЕННЫЕ ПРОБЛЕМЫ:
+1) Знаки больше-меньше в XML при выводе через XSLT
+Как обход можно перекрывать парсинг и ставить автообновление
+
+2) Не открывает на просмотр окно из дочернего окна
+РЕШЕНО! - Разрешения браузера
+Реализация в stroyserv: проверк на открытие, если нет - скачка и предупреждение!
+
+
+
+
+Проблемы, которые надо пофиксить в проектах при активизации:
+1) При установке галочки banned у пользователя не поисхдит закрытие активной сессии.
+	Функция SQL logins_user_session_id()
+	Функция SQL users_process - генерить событие Login.destroy_session
+	Модуль app.go - привязать локальное событие Login.destroy_session
+	Добавить метод для контроллера Login_Controller destroy_session
+Реализовано в dpassport
+
+2) Прикрепление множество файлов в attachments
+	attachments.go исправить метод delete
+реализовано в stroyserv
+
+2) Прикрепление множество файлов на клиенте, котрол EditFile
+	Шаблон EditFileInf - исправить на span
+	EditFile убрано clear()
+реализовано в stroyserv
+
+3) Электронная почта: подготовка для повторной отправки
+реализовано в dpassport
+
+
+
+4) как быть с ошибками через RASE EXCEPTION из функций SQL. Сейчас обрабатываются (очищаются) наклиенте в App.prototype.formatError
+УБРАТЬ перекрытие метода App.prototype.formatError в кастомных классах
+реализовано в dpassport убрать перекрытие метода formatError, брать стандартный!
+
+
+5) Iterate rows and scan
+for rows.Next() {
+    err = rows.Scan(vals...)
+}
+
+
+6) Object blocking technique. Like 1C blocking (
+	pessimistic: someone starts editting - block is applied, noone can edit the same object,
+	optimistic: someone saves changes, others (who olso changed attributes) get message that object's been changed
+) 
+optimistic blocking
+On open object subscribe to
+	(?) Object.update_ID/Object.delete_ID
+	(!) Object.update/Object.update and extract ID from params just like Grid does
+	(?!) Object.edit_ID and ussue Object.edit_ID on get_object query. Or better issue query on start edit anything
+		Object.reject_ID reject/discard changes
+		If get Object.edit_ID - warning that someone has editted the same object
+On get Object.update with same ID - message object changed, reread?
+On get Object.delete with same ID - message object deleted, one option - close
+

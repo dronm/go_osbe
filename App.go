@@ -10,81 +10,77 @@ import (
 	"bytes"
 	"io"
 	"encoding/json"
+	"path/filepath"
+	"io/ioutil"
+	"strings"
 	//"runtime/debug"
-	
-	"session"		
+		
 	"osbe/socket"
 	"osbe/srv"
 	"osbe/view"
 	"osbe/response"
 	"osbe/logger"
 	"osbe/fields"
+	"osbe/config"
+	
+	"github.com/dronm/session"
 )
 
 const (
-	DEFAULT_ROLE = "guest"
-	SESS_ROLE = "USER_ROLE"
-	SESS_LOCALE = "USER_LOCALE"
+	DEFAULT_ROLE = "guest"		// default user role if not logged
+	SESS_ROLE = "USER_ROLE"		// session variable name
+	SESS_LOCALE = "USER_LOCALE"	// session variable name
 	
-	FRAME_WORK_VERSION = "1.0.0.1"
+	VERSION_FILE_NAME = "version.txt"// for storing varion number
+	
+	FRAME_WORK_VERSION = "1.0.0.10"	// framwork version
 )
 
+var DebugQueries bool // if true, all queries will be logged
+
 type OnPublishEventProto = func(string, string)
+type OnReloadConfigProto = func()
 
-
-type Applicationer interface {
-	GetConfig() AppConfiger
-	GetLogger() logger.Logger
-	GetMD() *Metadata
-	GetServer(string) srv.Server
-	GetServers() ServerList
-	SendToClient(srv.Server, socket.ClientSocketer, *response.Response, string) error
-	HandleRequest(srv.Server, socket.ClientSocketer, string, string, string, []byte, string)
-	HandleJSONRequest(srv.Server, socket.ClientSocketer, []byte, string)
-	HandleSession(socket.ClientSocketer) error
-	DestroySession(sessID string)
-	HandlePermission(socket.ClientSocketer, string, string) error
-	HandleServerError(srv.Server, socket.ClientSocketer, string, string)
-	HandleProhibError(srv.Server, socket.ClientSocketer, string, string)
-	GetSessManager() *session.Manager
-	XSLTransform([]byte, string, string, string) ([]byte, error)	
-	GetFrameworkVersion() string
-	GetPermisManager() Permissioner
-	GetOnPublishEvent() OnPublishEventProto
-	GetDataStorage() interface{}
-	PublishPublicMethodEvents(PublicMethod, map[string]interface{})
-	GetEncryptKey() string
-	GetBaseDir() string
-}
-
+// ServerList is a list of running servers.
+// Defined on application startup.
 type ServerList map[string]srv.Server
 
+// Application is the main object holding
+// application parameters. It is passed to all
+// controllers. Derived applications must
+// include this structure to their app objects.
 type Application struct {
-	Config AppConfiger
-	Logger logger.Logger
-	//ServerPool *db.ServerPool
-	SessManager *session.Manager
-	MD *Metadata
-	Servers ServerList
-	PermisManager Permissioner
-	OnPublishEvent OnPublishEventProto
+	Config AppConfiger			// app config
+	Logger logger.Logger			// app logger
+	SessManager *session.Manager		// app sessions
+	MD *Metadata				// app description of all controllers/models
+	Servers ServerList			// list of running servers
+	PermisManager Permissioner		// handles permission rules (controllers to roles)
+	OnPublishEvent OnPublishEventProto	
 	DataStorage interface{}
-	EncryptKey string
-	BaseDir string
+	EncryptKey string			// application encryption key
+	BaseDir string				// application directory
+	ConfigFileName string			//
+	OnReloadConfig OnReloadConfigProto
+	AppVersion string
 }
 
+// GetConfig returns application config.
 func (a *Application) GetConfig()  AppConfiger{
 	return a.Config
 }
 
+// GetConfig returns application logger.
 func (a *Application) GetLogger()  logger.Logger{
 	return a.Logger
 }
 
+// GetConfig returns application metadata.
 func (a *Application) GetMD()  *Metadata{
 	return a.MD
 }
 
+// GetConfig returns a running service by its name.
 func (a *Application) GetServer(ID string)  srv.Server{
 	if s, ok := a.Servers[ID]; ok {
 		return s
@@ -92,17 +88,22 @@ func (a *Application) GetServer(ID string)  srv.Server{
 	return nil
 }
 
+// GetPermisManager returns application permission manager.
 func (a *Application) GetPermisManager()  Permissioner{
 	return a.PermisManager
 }
 
+// GetConfig returns a list of running service.
 func (a *Application) GetServers()  ServerList{
 	return a.Servers
 }
+
+// GetOnPublishEvent returns on publish event function.
 func (a *Application) GetOnPublishEvent()  OnPublishEventProto{
 	return a.OnPublishEvent
 }
 
+// AddServer adds a new service to the list.
 func (a *Application) AddServer(ID string, s srv.Server) {
 	if a.Servers == nil {
 		a.Servers = make(ServerList)
@@ -110,10 +111,13 @@ func (a *Application) AddServer(ID string, s srv.Server) {
 	a.Servers[ID] = s
 }
 
+// GetSessManager returns application session manager.
 func (a *Application) GetSessManager() *session.Manager{
 	return a.SessManager
 }
 
+// HandleSession is run on a new client call. It finds an appropriate
+// session by client token or creates a new one if it is dead.
 func (a *Application) HandleSession(sock socket.ClientSocketer) error {
 	if a.SessManager == nil {
 		return nil
@@ -134,7 +138,7 @@ func (a *Application) HandleSession(sock socket.ClientSocketer) error {
 	}
 	sock.SetSession(sess)
 	if sock.GetToken() == "" {
-		//new session
+		//session not found: create a new one
 		sock.SetToken(sess.SessionID())
 		sock.SetTokenExpires( sess.TimeCreated().Add(time.Second * time.Duration(a.Config.GetSession().MaxLifeTime)) )
 		//default role
@@ -147,36 +151,47 @@ func (a *Application) HandleSession(sock socket.ClientSocketer) error {
 	return nil
 }
 
+// DestroySession deletes a session by its ID.
 func (a *Application) DestroySession(sessID string) {
-a.GetLogger().Debugf("DestroySession sessID=%s", sessID)
+	a.GetLogger().Debugf("DestroySession sessID=%s", sessID)
 	a.GetSessManager().SessionDestroy(sessID)
 }
 
-func (a *Application) HandlePermission(sock socket.ClientSocketer, controllerID string, methodID string) error{
+// HandlePermission is called to determine permission for Controller->method. If not permitted
+// an error is returned.
+// TODO: it is better to return bool value instead.
+func (a *Application) HandlePermission(sock socket.ClientSocketer, controllerID string, methodID string) error {
 	if a.PermisManager == nil {
 		return nil
 	}
 	sess := sock.GetSession()	
-	if !a.PermisManager.IsAllowed(sess.GetString(SESS_ROLE), controllerID, methodID) {
+	role_id := sess.GetString(SESS_ROLE)
+	if !a.PermisManager.IsAllowed(role_id, controllerID, methodID) {
+		a.GetLogger().Errorf("Method '%s.%s' not allowed for role '%s'", controllerID, methodID, role_id)
 		return errors.New(ER_COM_METH_PROHIB)
 	}
 	return nil
 }
 
+// HandleServerError is called on any server error. The error is sent to client 
+// with a specified view as an internal server error.
 func (a *Application) HandleServerError(serv srv.Server, sock socket.ClientSocketer, queryID string, viewID string){
 	resp := response.NewResponse(queryID, a.MD.Version.Value)
 	resp.SetError(response.RESP_ER_INTERNAL, ER_INTERNAL)
 	a.SendToClient(serv, sock, resp, viewID)
 }
 
+//TODO: whe is it called, from server?
+// HandleProhibError is called on not allowed error.
 func (a *Application) HandleProhibError(serv srv.Server, sock socket.ClientSocketer, queryID string, viewID string){
 	resp := response.NewResponse(queryID, a.MD.Version.Value)
 	resp.SetError(response.RESP_ER_INTERNAL, ER_COM_METH_PROHIB)
 	a.SendToClient(serv, sock, resp, viewID)
 }
 
+// HandleRequestCont continues handling a client request. Checks permission for controller->method
+// for a given role.
 func (a *Application) HandleRequestCont(serv srv.Server, sock socket.ClientSocketer, pm PublicMethod, contr Controller, argv reflect.Value, resp *response.Response, viewID string) {
-
 	if contr != nil && pm != nil {
 		//permission
 		if sock != nil {
@@ -191,13 +206,15 @@ func (a *Application) HandleRequestCont(serv srv.Server, sock socket.ClientSocke
 				return
 			}
 		}
-
+		
+		//validate client arguments
 		err := a.validateExtArgs(pm, contr, argv)
 		if serv != nil && err != nil {
 			resp.SetError(response.RESP_ER_VALID, err.Error())
 			a.SendToClient(serv, sock, resp, viewID)
 			return
 		}
+		//run controller method.
 		err = pm.Run(a, serv, sock, resp, argv)
 		if serv != nil && err != nil {
 			var err_code int
@@ -233,22 +250,29 @@ func (a *Application) HandleRequestCont(serv srv.Server, sock socket.ClientSocke
 	}
 }
 
-//event is of type ControllerID.MethodID
-//no response is expected. All errors are logged
+// HandleEvent is an event handler. Called from event server.
+// Event is in format "ControllerID.MethodID".
+// No response is expected, so the function returns none.
+// All errors are logged.
 func (a *Application) HandleEvent(fn string, args []byte) {
 	contr, pm, argv, err := a.MD.Controllers.ParseFunctionCommand(fn, args)
 	if err != nil {
-		//log error
-		a.Logger.Errorf("Application.HandleLocalEvent ParseFunctionCommand(): %v", err)
+		a.Logger.Errorf("Application.HandleLocalEvent ParseFunctionCommand() failed: %v", err)
 		return
 	}
 	if err := pm.Run(a, nil, nil, nil, argv); err != nil {
-		a.Logger.Errorf("Application.HandleLocalEvent Run(): %v, %s.%s", err, contr.GetID(), pm.GetID())
+		a.Logger.Errorf("Application.HandleLocalEvent Run() failed: %v, %s.%s", err, contr.GetID(), pm.GetID())
 	}
 }
 
-//handles html request (controller, method - strings, no need to parse from struct)
+// HandleRequest handles net request. It has controller and method as separated parameters.
+// If error occurs when parsing command it is sent to client.
+// Otherwise, on success handling is continued in HandleRequestCont() function 
 func (a *Application) HandleRequest(serv srv.Server, sock socket.ClientSocketer, controllerID string, methodID string, queryID string, argsPayload []byte, viewID string) {
+	if a.Config.GetLogLevel() == "debug" {
+		a.Logger.Debugf("HTTPServer HandleRequest(): controllerID=%s, methodID=%s, queryID=%s, argsPayload=%s, viewID=%s", controllerID, methodID, queryID, string(argsPayload), viewID)
+	}
+	
 	var contr Controller
 	var pm PublicMethod
 	var argv reflect.Value
@@ -267,12 +291,11 @@ func (a *Application) HandleRequest(serv srv.Server, sock socket.ClientSocketer,
 		a.Logger.Errorf("Application.HandleRequest ControllerCollection.ParseCommand(): %v", err)
 		return
 	}
-//a.Logger.Debug("Application.HandleRequest is called")	
 	a.HandleRequestCont(serv, sock, pm, contr, argv, resp, viewID)
 }
 
-//Parsing incoming arguments, Controller method calling
-//payload contains json request
+// HandleJSONRequest handles requests in json format. Payload argument contains json data.
+// It parses incoming arguments, then on success HandleRequestCont() is called.
 func (a *Application) HandleJSONRequest(serv srv.Server, sock socket.ClientSocketer, payload []byte, viewID string) {	
 	contr, pm, argv, query_id, view_id, err := a.MD.Controllers.ParseJSONCommand(payload)	
 	if view_id == "" {
@@ -281,7 +304,7 @@ func (a *Application) HandleJSONRequest(serv srv.Server, sock socket.ClientSocke
 	resp := response.NewResponse(query_id, a.MD.Version.Value)
 	if serv != nil && err != nil {
 		resp.SetError(response.RESP_ER_PARSE, err.Error())
-		a.Logger.Errorf("Application.HandleJSONRequest NewResponse(): %v", err)
+		a.Logger.Errorf("Application.HandleJSONRequest NewResponse() failed: %v", err)
 		a.SendToClient(serv, sock, resp, view_id)
 		return
 		
@@ -291,10 +314,12 @@ func (a *Application) HandleJSONRequest(serv srv.Server, sock socket.ClientSocke
 	a.HandleRequestCont(serv, sock, pm, contr, argv, resp, view_id)
 }
 
+// SendToClient sends back to client response object rendered with a specific View.
+// TODO: measure request time?
 func (a *Application) SendToClient(serv srv.Server, sock socket.ClientSocketer, resp *response.Response, viewID string) error {
 	msg, err := view.Render(viewID, sock, resp)	
 	if err != nil {
-		a.Logger.Errorf("Application.Render(): %v", err)
+		a.Logger.Errorf("Application.Render() failed: %v", err)
 		//debug.PrintStack()
 		msg = []byte(err.Error())
 	}
@@ -303,6 +328,7 @@ func (a *Application) SendToClient(serv srv.Server, sock socket.ClientSocketer, 
 	return err 
 }
 
+// GetDataStorage returns application data storage object.
 func (a *Application) GetDataStorage() interface{}{
 	return a.DataStorage
 }
@@ -314,45 +340,22 @@ func (a *Application) GetBaseDir() string{
 	return a.BaseDir
 }
 
-/*func (a *Application) GetServerPool() *db.ServerPool{
-	return a.ServerPool
-}
-
-func (a *Application) GetPrimaryPoolConn() (*pgxpool.Conn, *PublicMethodError){
-	pool,err := a.GetServerPool().GetPrimary()
-	if err != nil {
-		return nil, NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("App.GetPrimaryPoolConn() db.ServerPool.GetPrimary(): %v",err))
-	}
-	
-	pool_conn, err := pool.Pool.Acquire(context.Background())
-	if err != nil {
-		return nil, NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("App.GetPrimaryPoolConn() pgxpool.Pool.Acquire(): %v",err))
-	}
-	return pool_conn, nil
-}
-
-func (a *Application) GetSecondaryPoolConn() (*pgxpool.Conn, *PublicMethodError){
-	pool,err := a.GetServerPool().GetSecondary()
-	if err != nil {
-		return nil, NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("db.ServerPool.GetSecondary(): %v",err))
-	}
-	
-	pool_conn, err := pool.Pool.Acquire(context.Background())
-	if err != nil {
-		return nil, NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("pgxpool.Pool.Acquire(): %v",err))
-	}
-	return pool_conn, nil
-}
-*/
+// GetTempDir returns application temp directory.
+// TODO: more platform independant way.
 func (a *Application) GetTempDir() string {
 	return "/tmp"
 }
 
-//Make read from stdin
-//now used from util_xml && view/html.go, view/excel.go
-//incoming data may come from []byte or can be taken from inFileName
-//if outFileName is set then output will be written to this file
-//othervise []byte will be returned
+// XSLTransform applies XSLT rules from file xslFileName to data byte slice
+// or data read from inFileName argument if given an uninitialized slice
+// and inFileName is not an empty string.
+// TODO:Make read from stdin.
+// If outFileName is set then output will be written to this file.
+// Othervise []byte will be returned.
+// This function is used from util_xml && view/html.go, view/excel.go
+// The function uses xalan as an XSL transformer.
+// TODO: make a possibility to choose a transformer. Put transformer
+// arguments some where else.
 func (a *Application) XSLTransform(data []byte, inFileName string, xslFileName string, outFileName string) ([]byte, error) {
 	//if a.OnXSLTransform
 	//xalan transformation by default
@@ -421,11 +424,102 @@ func (a *Application) XSLTransform(data []byte, inFileName string, xslFileName s
 	}
 }
 
+// XSLToPDFTransform transforms given data in form of a byte slice or from inFileName.
+// Styles from xslFileName are applied.
+// Transformed result is saved to file if outFileName is not empty or is returned
+// as slice of bytes.
+// The function uses Apache FOP as a transformer. 
+// TODO: Make read from stdin.
+// This function is used from view/pdf.go
+func (a *Application) XSLToPDFTransform(fop string, confFile string, params []string, data []byte, inFileName string, xslFileName string, outFileName string) ([]byte, error) {
+	//fop transformation by default	
+	if (data == nil && inFileName == "") || xslFileName == "" {
+		return nil, errors.New(ER_XSL_TRANSFORM)
+	}	
+	
+	if params == nil || len(params) == 0 {
+		params = []string{"-q"} //default param
+	}
+	if confFile != "" {
+		params = append(params, "-c", confFile)
+	}
+	if fop == "" {
+		fop = "fop"
+	}
+	
+	var out_b []byte
+	var errb bytes.Buffer
+	
+	if outFileName != "" {
+		params = append(params, "-pdf", outFileName)
+	}else{
+		params = append(params, "-pdf", "-")
+	}	
+	if data == nil {
+		params = append(params, "-xml", inFileName)
+	}else{
+		params = append(params, "-xml", "-")
+	}
+	params = append(params, "-xsl", xslFileName)
+	
+	a.Logger.Debugf("XSLToPDFTransform: %s %v\n", fop, params)	
+	
+	cmd := exec.Command(fop, params...)
+	cmd.Stderr = &errb
+
+	if data != nil {
+		stdin, err := cmd.StdinPipe()
+		if err != nil { 
+			return nil, err
+		}
+
+		go func() {
+			defer stdin.Close()
+			io.Copy(stdin, bytes.NewReader(data))
+		}()
+
+		if outFileName != "" {
+			err := cmd.Run()
+			if err != nil { 
+				return nil, err
+				//errors.New(string(out_b))
+			}		
+		}else{
+			out_b, err = cmd.Output()		
+			if err != nil {
+				return nil, err
+				//errors.New(string(out_b))
+			}
+		}
+
+	}else{
+		err := cmd.Run()
+		if err != nil { 
+			return nil, errors.New(string(out_b))
+			//errors.New(errb.String())
+		}
+	}
+	
+	if outFileName != "" {
+		_, err := os.Stat(outFileName)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+			
+		}else if err != nil {
+			return nil, errors.New(ER_XSL_TRANSFORM+" "+errb.String())
+		}
+		return nil, nil
+	}else{
+		return out_b, nil
+	}
+}
+
+// GetFrameworkVersion returns current framwork version number.
 func (a *Application) GetFrameworkVersion() string {
 	return FRAME_WORK_VERSION
 }
 
-//External argument validation
+// validateExtArgs is a private function for validating external user arguments.
 func (a *Application) validateExtArgs(pm PublicMethod, contr Controller, argv reflect.Value) error {
 
 	md_model := pm.GetFields()
@@ -434,17 +528,14 @@ func (a *Application) validateExtArgs(pm PublicMethod, contr Controller, argv re
 	}
 	
 	//combines all errors in one string	
-	valid_err := ""
+	var valid_err strings.Builder
 	
 	var arg_fld reflect.Value
 	
 	var argv_empty = argv.IsZero()
 	
 	for fid, fld := range md_model {
-		var arg_fld_v reflect.Value
-		
-		//fmt.Println("fid=", fid, "GetRequired=", fld.GetRequired(), "argv_empty=", argv_empty, "IsValid=", arg_fld.IsValid())		
-		//,"IsSet=", arg_fld.FieldByName("IsSet").Bool(),"IsNull=", arg_fld.FieldByName("IsNull").Bool())
+		var arg_fld_v reflect.Value		
 		if !argv_empty {
 			//Indirect always returns object!
 			arg_fld = reflect.Indirect(argv).FieldByName(fid)
@@ -454,7 +545,7 @@ func (a *Application) validateExtArgs(pm PublicMethod, contr Controller, argv re
 		}
 		
 		if !argv_empty && arg_fld_v == (reflect.Value{}) {
-		//custom structure
+			//custom structure
 			if fld.GetRequired() && arg_fld.IsZero() {
 				appendError(&valid_err, fmt.Sprintf(ER_PARSE_NOT_VALID_EMPTY, fld.GetDescr()) ) 
 			}// or no validation here
@@ -465,8 +556,6 @@ func (a *Application) validateExtArgs(pm PublicMethod, contr Controller, argv re
 			appendError(&valid_err, fmt.Sprintf(ER_PARSE_NOT_VALID_EMPTY, fld.GetDescr()) ) 
 			
 		}else if !argv_empty && arg_fld.IsValid() && arg_fld.Kind() == reflect.Struct {
-			//fmt.Println("!argv_empty && arg_fld.IsValid()")
-			
 			//check if metadata field implements certain interfaces
 			//if it does, call methods of these interfaces
 			//fmt.Printf("fid=%s, arg_fld=%v\n",fid, arg_fld)	
@@ -519,15 +608,14 @@ func (a *Application) validateExtArgs(pm PublicMethod, contr Controller, argv re
 		//fmt.Println("Field",fid,"IsSet=",arg_fld.FieldByName("IsSet"),"IsNull=",arg_fld.FieldByName("IsNull"),"Value=",arg_fld.FieldByName("TypedValue"))
 	}
 	
-	if valid_err != "" {
-		return errors.New(valid_err)
+	if valid_err.Len() > 0 {
+		return errors.New(valid_err.String())
 	}
 	
 	return nil
 }
 
-//notifies all servers through database event
-//
+// PublishPublicMethodEvents publishes events from public method if there are any.
 func (a *Application) PublishPublicMethodEvents(pm PublicMethod, params map[string]interface{}) {
 	//params["lsn"] = (SELECT pg_current_wal_lsn())
 	//SELECT pg_notify('%s','%s') ev_id, params_s
@@ -549,3 +637,59 @@ func (a *Application) PublishPublicMethodEvents(pm PublicMethod, params map[stri
 		}
 	}
 }
+
+// ReloadAppConfig reloads application configuration from file.
+// After reload OnReloadConfig() is called if it points to a function.
+func (a *Application) ReloadAppConfig() error {	
+	if a.ConfigFileName == "" {
+		return errors.New(ER_CONFIG_FILE_NOT_DEFINED)
+	}
+	if err := config.ReadConf(a.ConfigFileName, a.Config); err != nil {
+		return err
+	}
+	if a.OnReloadConfig != nil {
+		a.OnReloadConfig()
+	}
+	return nil
+}
+
+// LoadAppVersion loads application version from file defined by
+// VERSION_FILE_NAME constant. File is searched in base directory.
+func (a *Application) LoadAppVersion() error {	
+	f_n := filepath.Join(a.BaseDir, VERSION_FILE_NAME)
+	ver, err := ioutil.ReadFile(f_n)
+	if err != nil {
+		return err
+	}
+	if len(ver) == 0 {
+		return errors.New(ER_VERSION_FILE_EMPTY)
+	}
+	if []rune(string(ver))[len(ver)-1] == 10 {
+		ver = ver[0:len(ver)-1]
+	}
+	a.AppVersion = string(ver)
+	
+	if a.Logger != nil {
+		a.Logger.Warnf("Version file loaded, current version: %s", a.AppVersion)
+	}
+	return nil
+}
+
+// GetAppVersion returns application version. Version is
+// retrieved from file. It panics if version file is not found.
+// Should be called on application startup. 
+func (a *Application) GetAppVersion() string {	
+	if a.AppVersion == "" {
+		if err := a.LoadAppVersion(); err != nil {
+			err_s := fmt.Sprintf("LoadAppVersion() failed: %v", err)
+			if a.Logger != nil {
+				a.Logger.Error(err_s)
+				return ""
+			}else{
+				panic(err_s)
+			}		
+		}
+	}
+	return a.AppVersion
+}
+

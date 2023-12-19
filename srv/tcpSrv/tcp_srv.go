@@ -181,6 +181,7 @@ func (s *TCPServer) HandleConnection(sock socket.ClientSocketer) {
 			payload := make([]byte, tot_packet_len) //Data + postfix			
 			to_read := tot_packet_len
 			read_cnt := 0
+			//b, err := io.ReadAll(conn)
 			var payload_full []byte //на случай, если все не прочиается за раз
 			for to_read > 0 {
 				b_cnt, err := conn.Read(payload)							

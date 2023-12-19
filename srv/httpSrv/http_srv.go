@@ -17,6 +17,7 @@ import (
 	//"osbe/tokenBlock"	
 	"osbe/stat"	
 	"osbe/response"
+	
 )
 
 //HTTP server, OnHandleRequest, must be defined
@@ -36,7 +37,7 @@ const (
 	DEF_USER_TRANSFORM_CLASS_ID =  "ViewBase"
 	DEF_GUEST_TRANSFORM_CLASS_ID =  "Login"
 	
-	DEF_MULTYPART_MAX_MEM = 256 //32 << 20
+	DEF_MULTYPART_MAX_MEM = 256 //32 << 20 - 32mb
 	
 	CONTENT_DISPOSITION_ATTACHMENT CONTENT_DISPOSITION = "attachment"
 	CONTENT_DISPOSITION_INLINE CONTENT_DISPOSITION = "inline"
@@ -175,7 +176,6 @@ func (s *HTTPServer) checkExtension(ext string) bool {
 }
 
 func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
-//fmt.Println("Path=", r.URL.Path)	
 	sock := NewHTTPSocket(w, r)	
 	if r.URL.Path != "/" {
 		path_parts := strings.Split(r.URL.Path, "/")
@@ -190,6 +190,7 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				//Shortcuts - predefined paths
 				if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
+					s.Logger.Errorf("HTTPServer parseQueryParams(): %v", err)
 					return
 				}
 							
@@ -217,6 +218,7 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				//schema: controller/method/view
 				if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
+					s.Logger.Errorf("HTTPServer parseQueryParams: %v", err)
 					return
 				}
 				
@@ -236,19 +238,21 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}else{
-		if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-	}	
+		
+	}else if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		s.Logger.Errorf("HTTPServer parseQueryParams: %v", err)
+		return
+	}
 	
 	sock.Token, sock.TokenExpires = extractParam(r, sock.QueryParams, PARAM_TOKEN)
 	token_from_query := (sock.Token != "")
 	
-	//turn query/body parameters to json payload
+	//turn query/body parameters to json payload {"argv": {"par1":val1, "par2":val2}}
 	var query_id, view_id string	
-	meth_params_s := "" //all other params	
+	meth_params := []byte(`{"argv":{`) //all other params
+	meth_params_exists := false //if at least one parameter is already added
+	
 	for par_key, par_val:= range sock.QueryParams {
 		if par_key == PARAM_CONTROLLER && len(par_val)>0 {
 			sock.ControllerID = par_val[0]
@@ -272,28 +276,37 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			query_id = par_val[0]
 
 		}else if len(par_val)>0 {
-			if meth_params_s != "" {
-				meth_params_s+= ","
+			if meth_params_exists {
+				meth_params = append(meth_params, ',')
+			}else{
+				meth_params_exists = true
 			}
+			var par_val_b []byte
 			par_val_len := len(par_val[0])
 			if par_val_len >= 2 &&
 			( (par_val[0][0:1] == "{" && par_val[0][par_val_len-1:par_val_len] == "}") ||
 			(par_val[0][0:1] == "[" && par_val[0][par_val_len-1:par_val_len] == "]") ) {
 				//object!!!
-				meth_params_s+= fmt.Sprintf(`"%s":%s`, par_key, par_val[0])
+				par_val_b = []byte(par_val[0])
 			}else{
 				//string
 				//par_val_s := strings.ReplaceAll(par_val[0], `\n`, `\\n`)
 				//par_val_s := strings.ReplaceAll(par_val[0], `"`, `\"`)				
-				par_val_b, err := json.Marshal(par_val[0])
+				var err error
+				par_val_b, err = json.Marshal(par_val[0])
 				if err != nil {
 					s.Logger.Errorf("HTTPServer json.Marshal(): %v", err)
 					s.OnHandleServerError(s, sock, query_id, view_id)
 				}
-				meth_params_s+= fmt.Sprintf(`"%s":%s`, par_key, string(par_val_b))
 			}
+			//, 
+			meth_params = append(meth_params, '"')
+			meth_params = append(meth_params, []byte(par_key)...)
+			meth_params = append(meth_params, []byte{'"', ':'}...)
+			meth_params = append(meth_params, par_val_b...)
 		}
 	}
+	meth_params = append(meth_params, []byte{'}', '}'}...) //close argv
 	
 	//session
 	if s.OnHandleSession != nil {		
@@ -345,8 +358,6 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		query_id = "1"
 	}
 
-	argv_s := fmt.Sprintf(`{"argv": {%s}}`, meth_params_s)
-	
 	//header
 	cont_tp := s.GetViewContentType(view_id)
 	if cont_tp != "" {
@@ -359,14 +370,11 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		for key, val := range s.Headers {
 			w.Header().Set(key, val)
 		}
-	}
-	
+	}	
 	if s.OnBeforeHandleRequest != nil {
 		s.OnBeforeHandleRequest(sock)
 	}
-	s.Logger.Debugf("HTTPServer calling OnHandleRequest ControllerID=%s, MethodID=%s, query_id=%s, argv_s=%s, view_id=%s", sock.ControllerID, sock.MethodID, query_id, argv_s, view_id)	
-	
-	s.OnHandleRequest(s, sock, sock.ControllerID, sock.MethodID, query_id, []byte(argv_s), view_id)
+	s.OnHandleRequest(s, sock, sock.ControllerID, sock.MethodID, query_id, meth_params, view_id)
 }
 
 func (s *HTTPServer) SendToClient(sock socket.ClientSocketer, msg []byte) error {
@@ -419,22 +427,18 @@ func ServeContent(sock *HTTPSocket, fData *[]byte, fName string, mimetype MIME_T
 	http.ServeContent(sock.Response, sock.Request, fName, modTime, f_bytes)
 }
 
-//Retrieves parameter, first looks into cookies, then QueryParams
-func extractParam(r *http.Request, queryParams url.Values, param string) (val string, exp time.Time) {
+//extractParam Retrieves parameter value and its expiration time, first looks into cookies, then QueryParams
+func extractParam(r *http.Request, queryParams url.Values, param string) (string, time.Time) {
 	//analyse cookies	
-	if v_cookie, err := r.Cookie(param); v_cookie != nil && err == nil {
-		val = v_cookie.Value
-		exp = v_cookie.Expires
+	if v_cookie, err := r.Cookie(param); v_cookie != nil && err == nil && v_cookie.Value != "" {
+		return v_cookie.Value, v_cookie.Expires
 	}	
 	
 	//if param is not present in cookies, trying to get it from query params
-	if val == "" {
-		if val_par, ok := queryParams[param]; ok && len(val_par)>0 {
-			val = val_par[0]
-		}	
+	if val_par, ok := queryParams[param]; ok && len(val_par)>0 {
+		return val_par[0], time.Time{}
 	}
-
-	return
+	return "", time.Time{}
 }
 
 

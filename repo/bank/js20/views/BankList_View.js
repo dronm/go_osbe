@@ -1,0 +1,1 @@
+/home/andrey/www/includes/osbe/build/templates/js20.proj-tmpl/views.proj-tmpl/BankList_View.js

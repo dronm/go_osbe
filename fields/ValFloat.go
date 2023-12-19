@@ -36,7 +36,7 @@ func (v *ValFloat) SetValue(vF float64){
 	v.IsNull = false
 }
 
-func (v ValFloat) SetNull(){
+func (v *ValFloat) SetNull(){
 	v.TypedValue = 0
 	v.IsSet = true
 	v.IsNull = true
@@ -103,7 +103,11 @@ func (v *ValFloat) Scan(value interface{}) error {
 			case string:	
 				//0e0=0 1035e-2=10,35
 				val_s := string(val)				
-				if exp_p := strings.Index(val_s, "e"); exp_p == -1 {
+				if is_nan := strings.Index(val_s, "NaN"); is_nan >= 0 {
+					v.TypedValue = 0
+					return nil
+				
+				}else if exp_p := strings.Index(val_s, "e"); exp_p == -1 {
 					if i64, err := strconv.ParseInt(val_s, 10, 64); err == nil {
 						v.TypedValue = float64(i64)
 						return nil
@@ -117,7 +121,7 @@ func (v *ValFloat) Scan(value interface{}) error {
 					}
 				}
 		}	
-		return errors.New(ER_UNMARSHAL_FLOAT + "unsupported value")
+		return errors.New(ER_UNMARSHAL_FLOAT + "unsupported value " )
 		
 	}
 	return nil

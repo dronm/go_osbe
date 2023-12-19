@@ -10,35 +10,27 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 
 <xsl:output method="xml" indent="yes"/> 
 
-<xsl:variable name="DT_INT" select="'0'"/>
-<xsl:variable name="DT_INT_UNSIGNED" select="'1'"/>
+<xsl:variable name="DT_BOOL" select="'0'"/>
+<xsl:variable name="DT_CHAR" select="'1'"/>
 <xsl:variable name="DT_STRING" select="'2'"/>
-<xsl:variable name="DT_FLOAT_UNSIGNED" select="'3'"/>
-<xsl:variable name="DT_FLOAT" select="'4'"/>
-<xsl:variable name="DT_CUR_RUR" select="'5'"/>
-<xsl:variable name="DT_CUR_USD" select="'6'"/>
-<xsl:variable name="DT_BOOL" select="'7'"/>
-<xsl:variable name="DT_TEXT" select="'8'"/>
-<xsl:variable name="DT_DATETIME" select="'9'"/>
-<xsl:variable name="DT_DATE" select="'10'"/>
-<xsl:variable name="DT_TIME" select="'11'"/>
-<xsl:variable name="DT_OBJECT" select="'12'"/>
-<xsl:variable name="DT_FILE" select="'13'"/>
-<xsl:variable name="DT_PWD" select="'14'"/>
-<xsl:variable name="DT_EMAIL" select="'15'"/>
-<xsl:variable name="DT_ENUM" select="'16'"/>
-<xsl:variable name="DT_GEOM_POLYGON" select="'17'"/>
-<xsl:variable name="DT_GEOM_POINT" select="'18'"/>
-<xsl:variable name="DT_INTERVAL" select="'19'"/>
-<xsl:variable name="DT_DATETIMETZ" select="'20'"/>
-<xsl:variable name="DT_JSON" select="'21'"/>
-<xsl:variable name="DT_JSONB" select="'22'"/>
-<xsl:variable name="DT_ARRAY" select="'23'"/>
-<xsl:variable name="DT_XML" select="'24'"/>
-<xsl:variable name="DT_INT_BIG" select="'25'"/>
-<xsl:variable name="DT_INT_SMALL" select="'26'"/>
-<xsl:variable name="DT_BYTEA" select="'27'"/>
-
+<xsl:variable name="DT_INT" select="'3'"/>
+<xsl:variable name="DT_DATE" select="'4'"/>
+<xsl:variable name="DT_TIME" select="'5'"/>
+<xsl:variable name="DT_TIMETZ" select="'6'"/>
+<xsl:variable name="DT_DATETIME" select="'7'"/>
+<xsl:variable name="DT_DATETIMETZ" select="'8'"/>
+<xsl:variable name="DT_FLOAT" select="'9'"/>
+<xsl:variable name="DT_TEXT" select="'10'"/>
+<xsl:variable name="DT_ENUM" select="'11'"/>
+<xsl:variable name="DT_PASSWORD" select="'12'"/>
+<xsl:variable name="DT_INTERVAL" select="'13'"/>
+<xsl:variable name="DT_JSON" select="'14'"/>
+<xsl:variable name="DT_JSONB" select="'15'"/>
+<xsl:variable name="DT_ARRAY" select="'16'"/>
+<xsl:variable name="DT_BYTEA" select="'17'"/>
+<xsl:variable name="DT_XML" select="'18'"/>
+<xsl:variable name="DT_GEOMPOLYGON" select="'19'"/>
+<xsl:variable name="DT_GEOMPOINT" select="'20'"/>
 
 <!-- default widths for data types in px-->
 <xsl:variable name="DEF_WIDTH_DATE" select="100"/>
@@ -101,21 +93,22 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 	</xsl:choose>
 </xsl:template>
 
-<!--
+
 <xsl:template name="format_json">
-	<xsl:param name="val"/>
-	<xsl:variable name="mark_beg" value="&quot;descr&quot; : "/>
-	<xsl:variable name="mark_end" value="&quot;, &quot;dataType&quot;"/>
+	<xsl:param name="val"/>	
+	<xsl:variable name="mark_beg" select="'&quot;descr&quot; : &quot;'"/>
 	<xsl:choose>
-		<xsl:when test="contains($val, $replace)">
+		<xsl:when test="contains($val, $mark_beg)">
+			<xsl:variable name="mark_end" select="'&quot;, &quot;dataType'"/>
+			<xsl:variable name="descr_to_end" select="substring-after($val,$mark_beg)"/>		
+			<xsl:value-of select="substring-before($descr_to_end,$mark_end)" />
 		</xsl:when>
 		<xsl:otherwise>
 			<xsl:value-of select="$val" />
 		</xsl:otherwise>		
 	</xsl:choose>
-	<xsl:value-of select="'XXX'" />
 </xsl:template>
--->
+
 <!-- Main template-->
 <xsl:template match="/">
 	<xsl:processing-instruction
@@ -186,7 +179,7 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 		</Styles>
 		
 		<!-- sheets -->
-		<xsl:apply-templates select="document/model[@id != 'ModelServResponse']"/>
+		<xsl:apply-templates select="document/model[@id != 'Response']"/>
 		
 	</Workbook>
 </xsl:template>
@@ -194,7 +187,17 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 <!-- table -->
 <xsl:template match="model">
 	<xsl:variable name="model_id" select="@id"/>
-	<xsl:variable name="col_count" select="count(row[1]/*)"/>
+	<!--<xsl:variable name="col_count" select="count(row[1]/*)"/>-->
+	<xsl:variable name="col_count">
+		<xsl:choose>
+		<xsl:when test="count(/document/metadata[@modelId=$model_id]/field)>0">
+			<xsl:value-of select="count(/document/metadata[@modelId=$model_id]/field[not(@sysCol='TRUE')])"/>
+		</xsl:when>
+		<xsl:otherwise>
+			<xsl:value-of select="count(row[1]/*)"/>
+		</xsl:otherwise>
+		</xsl:choose>
+	</xsl:variable>
 	<xsl:variable name="row_count" select="count(row)"/>
 	<Worksheet ss:Name="Rep{position()}">
 		<Table ss:ExpandedColumnCount="{$col_count}" ss:ExpandedRowCount="{$row_count+1}" x:FullColumns="1"
@@ -226,7 +229,7 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 						<!-- Либо нет метеданных либо колонка не системная -->
 						<xsl:variable name="len">
 							<xsl:choose>
-								<xsl:when test="$metadata and not($metadata/@sysCol='TRUE') and ($metadata/@dataType=$DT_INT or $metadata/@dataType=$DT_INT_BIG or $metadata/@dataType=$DT_INT_SMALL)">
+								<xsl:when test="$metadata and not($metadata/@sysCol='TRUE') and ($metadata/@dataType=$DT_INT)">
 									<xsl:value-of select="$DEF_WIDTH_INT"/>
 								</xsl:when>
 								<xsl:when test="$metadata and not($metadata/@sysCol='TRUE') and $metadata/@dataType=$DT_DATE">
@@ -237,9 +240,6 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 								</xsl:when>					
 								<xsl:when test="$metadata and not($metadata/@sysCol='TRUE') and ($metadata/@dataType=$DT_DATETIME or $metadata/@dataType=$DT_DATETIMETZ)">
 									<xsl:value-of select="$DEF_WIDTH_DATETIME"/>
-								</xsl:when>
-								<xsl:when test="$metadata and not($metadata/@sysCol='TRUE') and $metadata/@dataType=$DT_FILE">
-									<xsl:value-of select="$DEF_WIDTH_FILE"/>
 								</xsl:when>
 								<xsl:when test="$metadata and not($metadata/@sysCol='TRUE') and $metadata/@dataType=$DT_FLOAT">
 									<xsl:value-of select="$DEF_WIDTH_DOUBLE"/>
@@ -277,7 +277,7 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 								</xsl:choose>
 							</xsl:variable>
 						
-							<Cell ss:StyleID="s21">
+							<Cell ss:StyleID="s22">
 								<Data ss:Type="String"><xsl:value-of select="$col_descr"/></Data>
 							</Cell>
 						</xsl:if>
@@ -299,10 +299,8 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 								
 								<xsl:variable name="excel_style_id">		
 									<xsl:choose>
-										<xsl:when test="$field_dt=$DT_INT or $field_dt=$DT_INT_UNSIGNED or $field_dt=$DT_INT_BIG or $field_dt=$DT_INT_SMALL"><xsl:value-of select="$EXCEl_STYLE_ID_INT"/></xsl:when>
-										
-										<xsl:when test="$field_dt=$DT_CUR_RUR or $field_dt=$DT_CUR_USD"><xsl:value-of select="$EXCEl_STYLE_ID_MONEY"/></xsl:when>
-										<xsl:when test="$field_dt=$DT_FLOAT or $field_dt=$DT_FLOAT_UNSIGNED"><xsl:value-of select="$EXCEl_STYLE_ID_FLOAT"/></xsl:when>
+										<xsl:when test="$field_dt=$DT_INT"><xsl:value-of select="$EXCEl_STYLE_ID_INT"/></xsl:when>										
+										<xsl:when test="$field_dt=$DT_FLOAT"><xsl:value-of select="$EXCEl_STYLE_ID_FLOAT"/></xsl:when>
 										<xsl:when test="$field_dt=$DT_DATETIME or $field_dt=$DT_DATETIMETZ"><xsl:value-of select="$EXCEl_STYLE_ID_DATETIME"/></xsl:when>
 										<xsl:when test="$field_dt=$DT_DATE"><xsl:value-of select="$EXCEl_STYLE_ID_DATE"/></xsl:when>
 										<xsl:otherwise><xsl:value-of select="$EXCEl_STYLE_ID_STRING"/></xsl:otherwise>
@@ -310,8 +308,8 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 								</xsl:variable>
 								<xsl:variable name="excel_data_type">
 									<xsl:choose>
-										<xsl:when test="$field_dt=$DT_INT or $field_dt=$DT_INT_UNSIGNED or $field_dt=$DT_INT_BIG or $field_dt=$DT_INT_SMALL"><xsl:value-of select="$EXCEl_DT_INT"/></xsl:when>
-										<xsl:when test="$field_dt=$DT_FLOAT or $field_dt=$DT_FLOAT_UNSIGNED"><xsl:value-of select="$EXCEl_DT_FLOAT"/></xsl:when>
+										<xsl:when test="$field_dt=$DT_INT"><xsl:value-of select="$EXCEl_DT_INT"/></xsl:when>
+										<xsl:when test="$field_dt=$DT_FLOAT"><xsl:value-of select="$EXCEl_DT_FLOAT"/></xsl:when>
 										<xsl:when test="$field_dt=$DT_DATETIME or $field_dt=$DT_DATETIMETZ"><xsl:value-of select="$EXCEl_DT_DATETIME"/></xsl:when>
 										<xsl:when test="$field_dt=$DT_DATE"><xsl:value-of select="$EXCEl_DT_DATE"/></xsl:when>
 										<xsl:otherwise><xsl:value-of select="$EXCEl_DT_STRING"/></xsl:otherwise>
@@ -344,13 +342,11 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 											</xsl:call-template>		
 										</xsl:when>
 										-->
-										<!--
 										<xsl:when test="$field_dt=$DT_JSON or $field_dt=$DT_JSONB">
 											<xsl:call-template name="format_json">
 												<xsl:with-param name="val" select="node()" />
 											</xsl:call-template>		
 										</xsl:when>							
-										-->			
 										<xsl:otherwise><xsl:value-of select="node()"/></xsl:otherwise>
 									</xsl:choose>
 								</xsl:variable>
@@ -390,7 +386,7 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 	<xsl:for-each select="field[not(@sysCol='TRUE')]">
 		<xsl:variable name="len">
 			<xsl:choose>
-				<xsl:when test="@dataType=$DT_INT or @dataType=$DT_INT_BIG or @dataType=$DT_INT_SMALL">
+				<xsl:when test="@dataType=$DT_INT">
 					<xsl:value-of select="$DEF_WIDTH_INT"/>
 				</xsl:when>
 				<xsl:when test="@dataType=$DT_DATE">
@@ -401,9 +397,6 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 				</xsl:when>					
 				<xsl:when test="@dataType=$DT_DATETIME or @dataType=$DT_DATETIMETZ">
 					<xsl:value-of select="$DEF_WIDTH_DATETIME"/>
-				</xsl:when>
-				<xsl:when test="@dataType=$DT_FILE">
-					<xsl:value-of select="$DEF_WIDTH_FILE"/>
 				</xsl:when>
 				<xsl:when test="@dataType=$DT_FLOAT">
 					<xsl:value-of select="$DEF_WIDTH_DOUBLE"/>
@@ -421,8 +414,7 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 	</Row>
 </xsl:template>
 
-<!-- header field
--->
+<!-- header field -->
 <xsl:template match="metadata/*">
 	<xsl:if test="not(@sysCol='TRUE')">
 		<xsl:variable name="col">
@@ -452,9 +444,7 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 	</Row>
 </xsl:template>
 
-<!-- table cell 
-все кроме системных колонок
--->
+<!-- table cell все кроме системных колонок -->
 <xsl:template match="row/*">
 	<xsl:variable name="field_id" select="name()"/>
 	<xsl:variable name="model_id" select="../../@id"/>	
@@ -462,8 +452,8 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 		<xsl:variable name="field_dt" select="/document/metadata[@modelId=$model_id]/field[@id=$field_id]/@dataType"/>
 		<xsl:variable name="excel_style_id">		
 			<xsl:choose>
-				<xsl:when test="$field_dt=$DT_INT or $field_dt=$DT_INT_UNSIGNED or $field_dt=$DT_INT_BIG or $field_dt=$DT_INT_SMALL"><xsl:value-of select="$EXCEl_STYLE_ID_INT"/></xsl:when>
-				<xsl:when test="$field_dt=$DT_FLOAT or $field_dt=$DT_FLOAT_UNSIGNED"><xsl:value-of select="$EXCEl_STYLE_ID_FLOAT"/></xsl:when>
+				<xsl:when test="$field_dt=$DT_INT"><xsl:value-of select="$EXCEl_STYLE_ID_INT"/></xsl:when>
+				<xsl:when test="$field_dt=$DT_FLOAT"><xsl:value-of select="$EXCEl_STYLE_ID_FLOAT"/></xsl:when>
 				<xsl:when test="$field_dt=$DT_DATETIME or $field_dt=$DT_DATETIMETZ"><xsl:value-of select="$EXCEl_STYLE_ID_DATETIME"/></xsl:when>
 				<xsl:when test="$field_dt=$DT_DATE"><xsl:value-of select="$EXCEl_STYLE_ID_DATE"/></xsl:when>
 				<xsl:otherwise><xsl:value-of select="$EXCEl_STYLE_ID_STRING"/></xsl:otherwise>
@@ -471,8 +461,8 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 		</xsl:variable>
 		<xsl:variable name="excel_data_type">
 			<xsl:choose>
-				<xsl:when test="$field_dt=$DT_INT or $field_dt=$DT_INT_UNSIGNED or $field_dt=$DT_INT_BIG or $field_dt=$DT_INT_SMALL"><xsl:value-of select="$EXCEl_DT_INT"/></xsl:when>
-				<xsl:when test="$field_dt=$DT_FLOAT or $field_dt=$DT_FLOAT_UNSIGNED"><xsl:value-of select="$EXCEl_DT_FLOAT"/></xsl:when>
+				<xsl:when test="$field_dt=$DT_INT"><xsl:value-of select="$EXCEl_DT_INT"/></xsl:when>
+				<xsl:when test="$field_dt=$DT_FLOAT"><xsl:value-of select="$EXCEl_DT_FLOAT"/></xsl:when>
 				<xsl:when test="$field_dt=$DT_DATETIME or $field_dt=$DT_DATETIMETZ"><xsl:value-of select="$EXCEl_DT_DATETIME"/></xsl:when>
 				<xsl:when test="$field_dt=$DT_DATE"><xsl:value-of select="$EXCEl_DT_DATE"/></xsl:when>
 				<xsl:otherwise><xsl:value-of select="$EXCEl_DT_STRING"/></xsl:otherwise>
@@ -502,13 +492,11 @@ xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 				</xsl:when>
 				
 				
-				<!--
 				<xsl:when test="$field_dt=$DT_JSON or $field_dt=$DT_JSONB">
 					<xsl:call-template name="format_json">
 						<xsl:with-param name="val" select="node()" />
 					</xsl:call-template>		
 				</xsl:when>														
-				-->
 				<xsl:otherwise><xsl:value-of select="node()"/></xsl:otherwise>
 			</xsl:choose>
 		</xsl:variable>

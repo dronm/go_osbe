@@ -105,7 +105,7 @@ func (v ValBool) Value() (driver.Value, error) {
 	return driver.Value(v.TypedValue), nil
 }
 
-func (v ValBool) SetNull(){
+func (v *ValBool) SetNull(){
 	v.TypedValue = false
 	v.IsSet = true
 	v.IsNull = true

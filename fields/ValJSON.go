@@ -33,7 +33,7 @@ func (v *ValJSON) SetValue(vAr []byte){
 	v.IsNull = false
 }
 
-func (v ValJSON) SetNull(){
+func (v *ValJSON) SetNull(){
 	v.TypedValue = []byte{}
 	v.IsSet = true
 	v.IsNull = true

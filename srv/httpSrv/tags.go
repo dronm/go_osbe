@@ -2,6 +2,8 @@ package httpSrv
 
 import(
 	"osbe/model"
+	"time"
+	"os"	
 )
 
 //HTML tags: TagScript (javascript), TagLink (css)
@@ -17,6 +19,7 @@ type TagScript struct {
 	Type string `json:"type" xml:"omitempty`
 	Defer bool `json:"defer" xml:"omitempty`
 	Language string `json:"language" xml:"omitempty`
+	Modified time.Time `json:"modified" xml:"omitempty`
 }
 
 //link tag
@@ -27,6 +30,7 @@ type TagLink struct {
 	Rel string `json:"rel" xml:"omitempty`
 	Sizes string `json:"sizes" xml:"omitempty` //widthxheight | widthXheight | any
 	Type string `json:"type" xml:"omitempty`
+	Modified time.Time `json:"modified" xml:"omitempty`
 }
 
 func NewScriptModel(rowCount int) *model.Model{
@@ -38,4 +42,12 @@ func NewLinkModel(rowCount int) *model.Model{
 	m := &model.Model{ID: LINK_MODEL_ID, SysModel: true, Rows: make([]model.ModelRow, rowCount)}
 	return m
 }
+
+func ScriptModifiedTime(f string) time.Time {
+	if info, err := os.Stat(f); err == nil {
+		return info.ModTime()
+	}
+	return time.Time{}
+}
+
 

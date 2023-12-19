@@ -6,15 +6,16 @@ import (
 	"sync"
 	"strings"	
 	"errors"
-//	"fmt"	
-	
-	"session"
+	"math/rand"
+		
 	"osbe/sql"
+	"github.com/dronm/session"
 )
 
+const SOCKET_ID_LEN = 32
+
 type ClientSocket struct {
-	//ID string
-	DemandLogout chan bool
+	ID string	//emitter unique ID
 	Conn net.Conn
 	mx sync.RWMutex
 	PacketID uint32
@@ -25,28 +26,25 @@ type ClientSocket struct {
 	Session session.Session
 }
 
-func (s ClientSocket) GetDescr() string {
+func (s *ClientSocket) GetDescr() string {
 	return s.Conn.RemoteAddr().String()
 }
 
 func (s *ClientSocket) Close() {
+	s.mx.Lock()
 	s.Conn.Close()
+	s.Conn = nil
+	s.mx.Unlock()
 }
 
 func (s *ClientSocket) GetConn() net.Conn{
 	return s.Conn
 }
 
-/*func (s ClientSocket) GetID() string{
-	return s.ID
-}*/
-
-func (s ClientSocket) GetDemandLogout() chan bool{
-	return s.DemandLogout
-}
-
 func (s *ClientSocket) UpdateLastActivity(){
+	s.mx.Lock()
 	s.LastActivity = time.Now()
+	s.mx.Unlock()
 }
 
 func (s *ClientSocket) SetToken(token string){
@@ -92,11 +90,10 @@ func (s *ClientSocket) GetPresetFilter(modelID string) sql.FilterCondCollection 
 		//for session serialization
 		//registerPresetFilter()
 	
-		f := sess.Get(SESS_PRESET_FILTER)
-//fmt.Printf("ClientSocket.GetPresetFilter=%v\n", f)		
-		if v, ok := f.(PresetFilter); ok {
-			return v.Get(modelID)
-		}
+		f := PresetFilter{}
+		if err := sess.Get(SESS_PRESET_FILTER, &f); err == nil {
+			return f.Get(modelID)	
+		}		
 	}
 	return nil
 }
@@ -106,12 +103,6 @@ func (s *ClientSocket) GetIP() string{
 		return ""
 	}
 	return GetRemoteAddrIP(s.Conn.RemoteAddr().String())
-	/*addr := s.Conn.RemoteAddr().String()
-	if p := strings.Index(addr, ":"); p >= 0 {
-		return addr[:p]
-	}else{
-		return addr
-	}*/
 }
 
 func GetRemoteAddrIP(remoteAddr string) string{
@@ -133,9 +124,29 @@ func (s *ClientSocket) GetLastActivity() time.Time {
 	return s.LastActivity 
 }
 
+func (s *ClientSocket) GetID() string {
+	return s.ID
+}
+
 //*************
 //id string, ID: id, 
 func NewClientSocket(conn net.Conn, token string, tokenExp time.Time) ClientSocketer{
-	return &ClientSocket{Conn: conn, Token: token, TokenExpires: tokenExp, StartTime: time.Now()}
+	return &ClientSocket{
+		ID: GenSocketID(),
+		Conn: conn,
+		Token: token,
+		TokenExpires: tokenExp,
+		StartTime: time.Now(),
+	}
+}
+
+func GenSocketID() string{
+	var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890")
+	b := make([]rune, SOCKET_ID_LEN)
+	for i := range b {
+		rand.Seed(time.Now().UnixNano())
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+	return string(b)
 }
 

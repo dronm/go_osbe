@@ -142,6 +142,7 @@ func GenModelMD(v reflect.Value) FieldCollection{
 					panic("GenMDDescr ValFloater lookup precision convert error on field: "+field.Name)
 				}
 				fld.SetPrecision(NewParamInt(int(v_i)))
+				//res[field.Name].SetPrecision(v_i)
 			}
 			if tag_val, ok := field.Tag.Lookup("length"); ok {
 				v_i,err := StrToInt(tag_val)
@@ -177,6 +178,10 @@ func GenModelMD(v reflect.Value) FieldCollection{
 		if encrypted, ok := field.Tag.Lookup("encrypted"); ok && encrypted == "true" {
 			res[field.Name].SetEncrypted(true)
 		}
+
+		if no_val_on_copy, ok := field.Tag.Lookup("noValueOnCopy"); ok && no_val_on_copy == "true" {
+			res[field.Name].SetNoValueOnCopy(true)
+		}
 		
 		if tag_val, ok := field.Tag.Lookup("defOrder"); ok {
 			res[field.Name].SetDefOrder(NewParamBool((strings.ToUpper(tag_val) == "ASC")))
@@ -196,6 +201,12 @@ func GenModelMD(v reflect.Value) FieldCollection{
 		
 		req,_ := StrToBool(field.Tag.Get("required"))
 		res[field.Name].SetRequired(req)				
+		
+		s_col,_ := StrToBool(field.Tag.Get("sysCol"))
+		res[field.Name].SetSysCol(s_col)
+		//for md
+		res[field.Name].SetFieldIndex(len(res)-1)
+		
 	}
 	return res
 }

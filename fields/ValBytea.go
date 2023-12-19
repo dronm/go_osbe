@@ -30,7 +30,7 @@ func (v *ValBytea) SetValue(vAr []byte){
 	v.IsNull = false
 }
 
-func (v ValBytea) SetNull(){
+func (v *ValBytea) SetNull(){
 	v.TypedValue = []byte{}
 	v.IsSet = true
 	v.IsNull = true

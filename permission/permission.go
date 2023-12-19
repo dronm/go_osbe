@@ -8,6 +8,21 @@ type permMethod map[string]bool
 type permController map[string]permMethod
 type PermRules map[string]permController
 
+//controller=no _Controller postfix!!!
+func (pr *PermRules) IsAllowed(role, controller, method string) bool{
+	if role == "" {
+		role = DEFAULT_ROLE
+	}
+	if pr_contr, ok := map[string]permController(*pr)[role]; ok {
+		if pr_meth, ok := pr_contr[controller]; ok {
+			if pr_allowed, ok := pr_meth[method]; ok {
+				return pr_allowed
+			}
+		}
+	}
+	return false
+}
+
 
 type Provider interface {
 	InitManager(manParams []interface{}) error

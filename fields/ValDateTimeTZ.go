@@ -12,6 +12,7 @@ import (
 const (
 	FORMAT_DATE_TIME_TZ1 string = "2006-01-02T15:04:05.000-07"
 	FORMAT_DATE_TIME_TZ2 string = "2006-01-02T15:04:05-07:00"
+	FORMAT_DATE_TIME_TZ3 string = "2006-01-02T15:04:05Z07:00"
 )
 
 type ValDateTimeTZ struct {
@@ -41,7 +42,7 @@ func (v *ValDateTimeTZ) SetValue(vT time.Time){
 	v.IsNull = false
 }
 
-func (v ValDateTimeTZ) SetNull(){
+func (v *ValDateTimeTZ) SetNull(){
 	v.TypedValue = time.Time{}
 	v.IsSet = true
 	v.IsNull = true
@@ -61,6 +62,10 @@ func (v *ValDateTimeTZ) UnmarshalJSON(data []byte) error {
 	var dt_tmpl string
 	if strings.Contains(v_str, "+") {
 		dt_tmpl = FORMAT_DATE_TIME_TZ2
+		
+	}else if strings.Contains(v_str, "Z") {
+		dt_tmpl = FORMAT_DATE_TIME_TZ3
+		
 	}else{
 		dt_tmpl = FORMAT_DATE_TIME_TZ1
 	}

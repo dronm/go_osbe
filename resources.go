@@ -24,6 +24,7 @@ const (
 	ER_COM_NO_VIEW = "Вид не определен."//12
 	ER_INTERNAL = "Server innner error."//13
 	ER_DELETE_CONSTR_VIOL = "Удаление невозможно, так как существуют ссылки."//500
+	ER_DELETE_NOT_FOUND = "Объект не найден."//510
 	ER_WRITE_CONSTR_VIOL = "Нарушение уникальности ключевых полей."//600
 	ER_PM_INTERNAL = "Ошибка исполнения метода."//5
 	
@@ -39,5 +40,7 @@ const (
 	
 	ER_XSL_TRANSFORM = "Ошибка трансформации xsl шаблона."
 	
+	ER_VERSION_FILE_EMPTY = "Файл версии пустой."
+	ER_CONFIG_FILE_NOT_DEFINED = "Файл конфигурации не определен."
 )	
 

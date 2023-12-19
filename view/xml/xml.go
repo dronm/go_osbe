@@ -50,7 +50,7 @@ func (v *ViewXML) Render(sock socket.ClientSocketer, resp *response.Response) ([
 		}
 	}
 	
-	return xml.ModelsToXML(resp.Models)
+	return xml.Marshal(resp.Models, false)
 }
 
 func init() {

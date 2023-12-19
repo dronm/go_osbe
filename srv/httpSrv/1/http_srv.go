@@ -21,6 +21,7 @@ import (
 
 //HTTP server, OnHandleRequest, must be defined
 
+type CONTENT_DISPOSITION string
 const (
 	PARAM_TOKEN = "token"
 	
@@ -30,25 +31,30 @@ const (
 	PARAM_VIEW_TMPL = "t" //view template to send with response, added in http_app
 	PARAM_QUERY_ID = "query_id"
 	
-	PARAM_TRANSFORM_TMPL = "templ" //transformation template
-	
 	CONTROLLER_QUERY_POSF = "_Controller"
 	
 	DEF_USER_TRANSFORM_CLASS_ID =  "ViewBase"
 	DEF_GUEST_TRANSFORM_CLASS_ID =  "Login"
 	
-	DEF_MULTYPART_MAX_MEM = 256
+	DEF_MULTYPART_MAX_MEM = 256 //32 << 20
+	
+	CONTENT_DISPOSITION_ATTACHMENT CONTENT_DISPOSITION = "attachment"
+	CONTENT_DISPOSITION_INLINE CONTENT_DISPOSITION = "inline"
+	
+	CHARSET_UTF8 = "charset=utf-8"
 )
 
-type requestHandlerProto = func(w http.ResponseWriter, r *http.Request)
+//type requestHandlerProto = func(w http.ResponseWriter, r *http.Request)
+
 type OnBeforeHandleRequestProto func(socket.ClientSocketer)
+type OnDefineUserTransformClassIDProto func(*HTTPSocket)
 
 type argvType map[string]string//[]byte
 //
 
-type methodParams struct {
+/*type methodParams struct {
 	Argv argvType `json:"argv"`
-}
+}*/
 
 type URLShortcut struct {
 	ControllerID string
@@ -59,20 +65,21 @@ type URLShortcut struct {
 
 type HTTPServer struct {
 	srv.BaseServer
+	//CoreServer *http.Server
 	Statistics stat.SrvStater
 	
 	OnBeforeHandleRequest OnBeforeHandleRequestProto
+	OnDefineUserTransformClassID OnDefineUserTransformClassIDProto
 	HTTPDir string	
 	AllowedExtensions []string
-	Headers map[string]string
-	UserTransformClassID string
-	GuestTransformClassID string
+	Headers map[string]string	
 	URLShortcuts map[string]URLShortcut
 	viewContentTypes map[string]string
 	
 	MultypartMaxMemory int64 //bytes
 }
 
+//controller ID, method ID, view ID
 func (s *HTTPServer) AddURLShortcut(ID, cID, mID, vID string, params map[string]string) {
 	if s.URLShortcuts == nil {
 		s.URLShortcuts = make(map[string]URLShortcut)
@@ -93,6 +100,11 @@ func (s *HTTPServer) Run() {
 		s.Logger.Fatal("HTTPServer.OnHandleSession defined, but OnHandleServerError not defined")
 	}
 
+	/*if s.CoreServer == nil {
+		//defaults
+		s.CoreServer = &http.Server{Addr:s.Address}
+	}*/
+
 	//TLS if nedded
 	tls_start := (s.TlsAddress != "" && s.TlsCert != "" && s.TlsKey != "")
 	ws_start := (s.Address!= "")
@@ -101,44 +113,35 @@ func (s *HTTPServer) Run() {
 	
 	s.Statistics = stat.NewSrvStat()
 	
+	//https server: 1 process or gorouting
 	if tls_start {
 		s.Logger.Infof("Starting secured web server: %s", s.TlsAddress)		
 		if !ws_start {
 			//main loop
-			http.ListenAndServeTLS(s.TlsAddress, s.TlsCert, s.TlsKey, nil)
+			if err := http.ListenAndServeTLS(s.TlsAddress, s.TlsCert, s.TlsKey, nil); err != nil {
+				s.Logger.Errorf("ListenAndServeTLS(): %v", err)
+			}
 		}else{
 			//2 servers
-			go http.ListenAndServeTLS(s.TlsAddress, s.TlsCert, s.TlsKey, nil)
+			go func() {
+				if err := http.ListenAndServeTLS(s.TlsAddress, s.TlsCert, s.TlsKey, nil); err != nil {
+					s.Logger.Errorf("ListenAndServeTLS(): %v", err)
+				}
+			}()
 		}
 	}
 	
-	
+	//http server
 	if ws_start {		
 		s.Logger.Infof("Starting web server: %s", s.Address)		
-		http.ListenAndServe(s.Address, nil)	
+		if err := http.ListenAndServe(s.Address, nil); err != nil {
+			s.Logger.Errorf("ListenAndServe(): %v", err)
+		}
 	}
-}
-
-//Retrieves parameter, first looks into cookies, then QueryParams
-func extractParam(r *http.Request, queryParams url.Values, param string) (val string, exp time.Time) {
-	//analyse cookies	
-	if v_cookie, err := r.Cookie(param); v_cookie != nil && err == nil {
-		val = v_cookie.Value
-		exp = v_cookie.Expires
-	}	
-	
-	//if param is not present in cookies, trying to get it from query params
-	if val == "" {
-		if val_par, ok := queryParams[param]; ok && len(val_par)>0 {
-			val = val_par[0]
-		}	
-	}
-
-	return
 }
 
 //parses query params based on query method, queryParams always non-nil map
-func (s *HTTPServer) parseQueryParams(r *http.Request, queryParams *url.Values) {
+func (s *HTTPServer) parseQueryParams(r *http.Request, queryParams *url.Values) error {
 	if r.Method == http.MethodGet {
 		*queryParams = r.URL.Query()
 	}else{
@@ -150,13 +153,16 @@ func (s *HTTPServer) parseQueryParams(r *http.Request, queryParams *url.Values) 
 			}else{
 				mem = s.MultypartMaxMemory
 			}
-			r.ParseMultipartForm(mem)
+			if err := r.ParseMultipartForm(mem); err != nil {
+				return err
+			}
 			*queryParams = r.MultipartForm.Value
 		}else{
 			r.ParseForm()
 			*queryParams = r.Form
 		}
 	}
+	return nil
 }
 
 func (s *HTTPServer) checkExtension(ext string) bool {
@@ -169,8 +175,7 @@ func (s *HTTPServer) checkExtension(ext string) bool {
 }
 
 func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
-	
-	var query_params url.Values
+	sock := NewHTTPSocket(w, r)	
 	if r.URL.Path != "/" {
 		path_parts := strings.Split(r.URL.Path, "/")
 
@@ -182,11 +187,15 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			}
 			if sh_cut, ok := s.URLShortcuts[path]; ok {
 				//Shortcuts - predefined paths
-				s.parseQueryParams(r, &query_params)
+				if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					s.Logger.Errorf("HTTPServer parseQueryParams(): %v", err)
+					return
+				}
 							
-				query_params.Add(PARAM_CONTROLLER, sh_cut.ControllerID)
-				query_params.Add(PARAM_METH, sh_cut.MethodID)
-				query_params.Add(PARAM_VIEW, sh_cut.ViewID)
+				sock.QueryParams.Add(PARAM_CONTROLLER, sh_cut.ControllerID)
+				sock.QueryParams.Add(PARAM_METH, sh_cut.MethodID)
+				sock.QueryParams.Add(PARAM_VIEW, sh_cut.ViewID)
 				sh_cut_found = true
 			}
 		}
@@ -194,21 +203,30 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		if !sh_cut_found {
 			file_parts := strings.Split(path_parts[len(path_parts)-1], ".")		
 			n := len(file_parts)
-			if n > 0 && s.checkExtension(file_parts[n-1]) && view.FileExists(s.HTTPDir + r.URL.Path) {
+			if n > 0 && s.checkExtension(file_parts[n-1]) {
 				//file serving
-				http.ServeFile(w, r, s.HTTPDir + r.URL.Path)
+				if view.FileExists(s.HTTPDir + r.URL.Path) {
+					http.ServeFile(w, r, s.HTTPDir + r.URL.Path)
+				}else{
+					s.Logger.Errorf("HTTPServer.OnHandleRequest %s file with extension %s not found", s.HTTPDir + r.URL.Path,file_parts[n-1])
+				}
 				return
 			}
 			
 			if len(path_parts) >= 2 {		
 				//schema: controller/method/view
-				s.parseQueryParams(r, &query_params)			
-				query_params.Add(PARAM_CONTROLLER, path_parts[1])
+				if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					s.Logger.Errorf("HTTPServer parseQueryParams: %v", err)
+					return
+				}
+				
+				sock.QueryParams.Add(PARAM_CONTROLLER, path_parts[1])
 				if len(path_parts) >= 3 {
-					query_params.Add(PARAM_METH, path_parts[2])
+					sock.QueryParams.Add(PARAM_METH, path_parts[2])
 				}	
 				if len(path_parts) >= 4 {
-					query_params.Add(PARAM_VIEW, path_parts[3])
+					sock.QueryParams.Add(PARAM_VIEW, path_parts[3])
 				}
 			}else{
 				
@@ -219,18 +237,21 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}else{
-		s.parseQueryParams(r, &query_params)
-	}	
-	sock := NewHTTPSocket(w, r)
-	sock.Token, sock.TokenExpires = extractParam(r, query_params, PARAM_TOKEN)
+		
+	}else if err := s.parseQueryParams(r, &sock.QueryParams); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		s.Logger.Errorf("HTTPServer parseQueryParams: %v", err)
+		return
+	}
+	
+	sock.Token, sock.TokenExpires = extractParam(r, sock.QueryParams, PARAM_TOKEN)
 	token_from_query := (sock.Token != "")
 	
-	//turn query/body parameters to json payload
+	//turn query/body parameters to json payload {"argv": {"par1":val1, "par2":val2}}
 	var query_id, view_id string	
-	meth_params := methodParams{Argv: make(argvType)}
+	var meth_params strings.Builder //all other params	
 	
-	for par_key, par_val:= range query_params {
+	for par_key, par_val:= range sock.QueryParams {
 		if par_key == PARAM_CONTROLLER && len(par_val)>0 {
 			sock.ControllerID = par_val[0]
 			//extract postfix if any
@@ -252,19 +273,32 @@ func (s *HTTPServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		}else if par_key == PARAM_QUERY_ID && len(par_val)>0 {
 			query_id = par_val[0]
 
-		}else if par_key == PARAM_TRANSFORM_TMPL && len(par_val)>0 {
-			sock.TransformTemplateID = par_val[0]
-						
 		}else if len(par_val)>0 {
-			//[]byte(
-			//meth_params.Argv[par_key] = par_val[0]
-			meth_params.Argv[par_key] = par_val[0]
-fmt.Println("par_val=", par_val[0], "byte=", string(meth_params.Argv[par_key]))					
+			if meth_params.Len() > 0 {
+				meth_params.WriteString(",")
+			}
+			par_val_len := len(par_val[0])
+			if par_val_len >= 2 &&
+			( (par_val[0][0:1] == "{" && par_val[0][par_val_len-1:par_val_len] == "}") ||
+			(par_val[0][0:1] == "[" && par_val[0][par_val_len-1:par_val_len] == "]") ) {
+				//object!!!
+				meth_params.WriteString(fmt.Sprintf(`"%s":%s`, par_key, par_val[0]))
+			}else{
+				//string
+				//par_val_s := strings.ReplaceAll(par_val[0], `\n`, `\\n`)
+				//par_val_s := strings.ReplaceAll(par_val[0], `"`, `\"`)				
+				par_val_b, err := json.Marshal(par_val[0])
+				if err != nil {
+					s.Logger.Errorf("HTTPServer json.Marshal(): %v", err)
+					s.OnHandleServerError(s, sock, query_id, view_id)
+				}
+				meth_params.WriteString(fmt.Sprintf(`"%s":%s`, par_key, string(par_val_b)))
+			}
 		}
 	}
 	
 	//session
-	if s.OnHandleSession != nil {
+	if s.OnHandleSession != nil {		
 		err := s.OnHandleSession(sock)
 		if err != nil {
 			s.Logger.Errorf("HTTPServer HandleRequest OnHandleSession: %v", err)
@@ -275,8 +309,7 @@ fmt.Println("par_val=", par_val[0], "byte=", string(meth_params.Argv[par_key]))
 		if sock.Token == "" {
 			//new session started
 			sess := sock.GetSession()
-			sock.Token = sess.SessionID()
-			
+			sock.Token = sess.SessionID()			
 			s.Statistics.IncHandshakes()
 		}
 		
@@ -294,24 +327,16 @@ fmt.Println("par_val=", par_val[0], "byte=", string(meth_params.Argv[par_key]))
 				})
 		}		
 	}
-
-	if sock.TransformClassID == "" {
+	
+	if sock.TransformClassID == "" && s.OnDefineUserTransformClassID != nil {
+		//handler is defined for View absence cases
+		s.OnDefineUserTransformClassID(sock)
+		
+	}else if sock.TransformClassID == "" {
 		//defaults
-		sess := sock.GetSession()	
-		if sess.GetBool("LOGGED") {
-			if s.UserTransformClassID != "" {
-				sock.TransformClassID = s.UserTransformClassID
-			}else{
-				sock.TransformClassID = DEF_USER_TRANSFORM_CLASS_ID
-			}
-		}else{
-			if s.GuestTransformClassID != "" {
-				sock.TransformClassID = s.GuestTransformClassID
-			}else{
-				sock.TransformClassID = DEF_GUEST_TRANSFORM_CLASS_ID
-			}			
-		}
+		defineUserTransformClassID(sock)
 	}
+
 	view_id = sock.TransformClassID
 	if !view.Registered(view_id) {
 		view_id = "ViewHTML"
@@ -322,14 +347,7 @@ fmt.Println("par_val=", par_val[0], "byte=", string(meth_params.Argv[par_key]))
 		query_id = "1"
 	}
 
-fmt.Println("meth_params=", meth_params)			
-	argv_s, err := json.Marshal(meth_params)
-fmt.Println("argv_s=", string(argv_s))	
-	if err != nil {
-		s.Logger.Errorf("HTTPServer json.Marshal: %v", err)
-		s.OnHandleServerError(s, sock, query_id, view_id)
-		return
-	}
+	argv_s := fmt.Sprintf(`{"argv": {%s}}`, meth_params.String())
 	
 	//header
 	cont_tp := s.GetViewContentType(view_id)
@@ -350,7 +368,7 @@ fmt.Println("argv_s=", string(argv_s))
 	}
 	s.Logger.Debugf("HTTPServer calling OnHandleRequest ControllerID=%s, MethodID=%s, query_id=%s, argv_s=%s, view_id=%s", sock.ControllerID, sock.MethodID, query_id, argv_s, view_id)	
 	
-	s.OnHandleRequest(s, sock, sock.ControllerID, sock.MethodID, query_id, argv_s, view_id)
+	s.OnHandleRequest(s, sock, sock.ControllerID, sock.MethodID, query_id, []byte(argv_s), view_id)
 }
 
 func (s *HTTPServer) SendToClient(sock socket.ClientSocketer, msg []byte) error {
@@ -365,11 +383,11 @@ func (s *HTTPServer) GetClientSockets() *socket.ClientSocketList{
 	return nil
 }
 
-func (s *HTTPServer) AddViewContentType(viewID, mimeType, charset string) {
+func (s *HTTPServer) AddViewContentType(viewID string, mimeType MIME_TYPE, charset string) {
 	if s.viewContentTypes == nil {
 		s.viewContentTypes = make(map[string]string)
 	}
-	s.viewContentTypes[viewID] = mimeType
+	s.viewContentTypes[viewID] = string(mimeType)
 	if charset != "" {
 		s.viewContentTypes[viewID] += "; "+charset
 	}
@@ -382,11 +400,11 @@ func (s *HTTPServer) GetViewContentType(viewID string) string {
 	return ""
 }
 
-func (s *HTTPServer) AddFile(viewID, mimeType, charset string) {
+func (s *HTTPServer) AddFile(viewID string, mimeType MIME_TYPE, charset string) {
 	if s.viewContentTypes == nil {
 		s.viewContentTypes = make(map[string]string)
 	}
-	s.viewContentTypes[viewID] = mimeType
+	s.viewContentTypes[viewID] = string(mimeType)
 	if charset != "" {
 		s.viewContentTypes[viewID] += "; "+charset
 	}
@@ -396,9 +414,31 @@ func (s *HTTPServer) GetStatistics() stat.SrvStater {
 	return s.Statistics
 }
 
+func ServeContent(sock *HTTPSocket, fData *[]byte, fName string, mimetype MIME_TYPE, modTime time.Time, contDisposition CONTENT_DISPOSITION) {
+	f_bytes := bytes.NewReader(*fData) // converted to io.ReadSeeker type
+	sock.Response.Header().Set("Content-Type", string(mimetype))
+	sock.Response.Header().Set("Content-Disposition", string(contDisposition)+";filename="+fName)
+	http.ServeContent(sock.Response, sock.Request, fName, modTime, f_bytes)
+}
+
+//extractParam Retrieves parameter value and its expiration time, first looks into cookies, then QueryParams
+func extractParam(r *http.Request, queryParams url.Values, param string) (string, time.Time) {
+	//analyse cookies	
+	if v_cookie, err := r.Cookie(param); v_cookie != nil && err == nil && v_cookie.Value != "" {
+		return v_cookie.Value, v_cookie.Expires
+	}	
+	
+	//if param is not present in cookies, trying to get it from query params
+	if val_par, ok := queryParams[param]; ok && len(val_par)>0 {
+		return val_par[0], time.Time{}
+	}
+	return "", time.Time{}
+}
+
+
 //mimetype default is GetMimeTypeOnFileExt()
 //contDisposition (attachment|inline) default is attachment
-func DownloadFile(resp *response.Response, sock socket.ClientSocketer, f *os.File, fName, mimetype, contDisposition string) error {
+func DownloadFile(resp *response.Response, sock socket.ClientSocketer, f *os.File, fName string, mimetype MIME_TYPE, contDisposition CONTENT_DISPOSITION) error {
 	sock_http, ok := sock.(*HTTPSocket)
 	if !ok {
 		return errors.New("sock must be *HTTPSocket")
@@ -408,7 +448,7 @@ func DownloadFile(resp *response.Response, sock socket.ClientSocketer, f *os.Fil
 		mimetype = GetMimeTypeOnFileExt(fName)
 	}
 	if contDisposition == "" {
-		contDisposition = "attachment"
+		contDisposition = CONTENT_DISPOSITION_ATTACHMENT
 	}
 	
 	file_info, _ := f.Stat()
@@ -417,14 +457,22 @@ func DownloadFile(resp *response.Response, sock socket.ClientSocketer, f *os.Fil
 	
 	buffer := make([]byte, f_size)
 	f.Read(buffer)
-	f_bytes := bytes.NewReader(buffer) // converted to io.ReadSeeker type
 	
-	sock_http.Response.Header().Set("Content-Type", mimetype)
-	sock_http.Response.Header().Set("Content-Disposition", contDisposition+";filename="+fName)
-	http.ServeContent(sock_http.Response, sock_http.Request, fName, f_mod, f_bytes)
+	ServeContent(sock_http, &buffer, fName, mimetype, f_mod, contDisposition)
 	resp = nil
 	
 	return nil
+}
+
+//Sets default transformation class ID to sock.TransformClassID
+//Uses session LOGGED variable to define different classes
+func defineUserTransformClassID(sock *HTTPSocket) {
+	sess := sock.GetSession()
+	if sess.GetBool("LOGGED") {
+		sock.TransformClassID = DEF_USER_TRANSFORM_CLASS_ID
+	}else{
+		sock.TransformClassID = DEF_GUEST_TRANSFORM_CLASS_ID
+	}
 }
 
 /*

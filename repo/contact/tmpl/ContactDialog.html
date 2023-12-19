@@ -1,0 +1,33 @@
+<div id="{{id}}">
+	<div id="{{id}}:cmd-cont">
+		<div id="{{id}}:cmdOk"/>
+		<div id="{{id}}:cmdSave"/>
+		<div id="{{id}}:cmdCancel"/>
+	</div>
+
+	<div class="row">
+		<h1 class="page-header">Карточка контакта</h1>
+	</div>
+	
+	<div id="{{id}}:name">
+	</div>
+	<div id="{{id}}:posts_ref">
+	</div>
+	<div id="{{id}}:email">
+	</div>
+	<div id="{{id}}:tel">
+	</div>
+	<div id="{{id}}:tel_ext">
+	</div>
+	
+	{{#TM_ACTIVATED}}
+	<div>Активирован Telegram
+	</div>
+	<img src="data:image/png;base64, {{TM_PHOTO}}">
+	</img>
+	{{/TM_ACTIVATED}}
+	
+	<div id="{{id}}:comment_text">
+	</div>
+	
+</div>	

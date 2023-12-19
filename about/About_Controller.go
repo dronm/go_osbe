@@ -1,11 +1,9 @@
+// About package holds About application information.
+// It contains a controller and a model. Controller has a get_object method.
+// Information is fetched from application configuration.
+//
+// OSBE project by Andrey Mikhalevich
 package about
-
-/**
- * Andrey Mikhalevich 15/12/21
- * This file is part of the OSBE framework
- *
- * Custom controller
- */
 
 import (
 	"reflect"

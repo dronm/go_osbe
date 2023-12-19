@@ -87,7 +87,7 @@ func (v *ViewExcel) Render(sock socket.ClientSocketer, resp *response.Response) 
 		sock_http, is_sock_http = sock.(*httpSrv.HTTPSocket)
 	}
 
-	xml_data, err := xml.ModelsToXML(resp.Models)
+	xml_data, err := xml.Marshal(resp.Models, true)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +111,8 @@ func (v *ViewExcel) Render(sock socket.ClientSocketer, resp *response.Response) 
 			template_file = v.SrvTemplateDir + "/" +  fmt.Sprintf("%s.%s", template_id, TEMPLATE_EXT)
 		}
 	}else {
+//fmt.Println("1.Looking for ", v.UserViewDir + "/" +  fmt.Sprintf("%s.%s", sock_http.TransformClassID, TEMPLATE_EXT))
+//fmt.Println("2.Looking for ", v.SrvTemplateDir + "/" +  fmt.Sprintf("%s.%s", sock_http.TransformClassID, TEMPLATE_EXT))		
 		if view.FileExists(v.UserViewDir + "/" +  fmt.Sprintf("%s.%s", sock_http.TransformClassID, TEMPLATE_EXT)) {
 			template_file = v.UserViewDir + "/" +  fmt.Sprintf("%s.%s", sock_http.TransformClassID, TEMPLATE_EXT)
 			
@@ -122,14 +124,15 @@ func (v *ViewExcel) Render(sock socket.ClientSocketer, resp *response.Response) 
 	if template_file == "" {
 		return nil, errors.New("default server template not found in server template directory")
 	}
-	
+	if v.XMLDebug && v.DebugDir != "" {
+		//fmt.Println("ViewExcel->Render template_file=", template_file)	
+		ioutil.WriteFile(v.DebugDir + "/xml_data.xml", xml_data, 0644)
+	}
+
 	excel_data, err := v.TemplateTransform(xml_data, "", template_file, "")
 	if err != nil {
 		return nil, err
 	}	
-	if v.XMLDebug && v.DebugDir != "" {
-		ioutil.WriteFile(v.DebugDir + "/xml_data.xml", xml_data, 0644)
-	}
 	if v.ExcelDebug && v.DebugDir != "" {
 		ioutil.WriteFile(v.DebugDir + "/excel_data.xsl", excel_data, 0644)		
 	}
@@ -149,6 +152,6 @@ func (v *ViewExcel) Render(sock socket.ClientSocketer, resp *response.Response) 
 }
 
 func init() {
-	view.Register("ViewExcel", v)
+	view.Register(VIEW_ID, v)
 }
 

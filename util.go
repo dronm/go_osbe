@@ -9,8 +9,9 @@ import(
 	"crypto/md5"
 	"encoding/hex"		
 	"math"
+	"strings"
 	
-	"ds/pgds"	
+	"github.com/dronm/ds/pgds"	
 	"osbe/fields"	
 	"osbe/response"
 	"osbe/model"
@@ -23,24 +24,26 @@ import(
 	"github.com/jackc/pgtype"
 )
 
+// This file contains utilities for osbe application.
+
 const (
 	KEY_FLD_PREF = "old_"
-	KEY_FLD_PREF_LEN = 4
 	
 	LSN_FIELD = "lsn"
 	
 	METH_COMPLETE_DEF_COUNT = 50
-	DEF_GET_LIST_LIMIT = 500
 
 	RESP_ER_DELETE_CONSTR_VIOL = 500
+	RESP_ER_DELETE_NOT_FOUND = 510
 	RESP_ER_WRITE_CONSTR_VIOL = 600
 )
 
-func appendError(er *string, addStr string) {
-	if *er !="" {
-		*er+= ", "
+// appendError is a helper function which combines error string in a string builder.
+func appendError(er *strings.Builder, addStr string) {
+	if er.Len() > 0 {
+		er.WriteString(", ")
 	}
-	*er+= addStr
+	er.WriteString(addStr)
 }
 
 //Separates public method arguments into  fieldIds, fieldArgs, retFieldIds,  fieldValues
@@ -69,7 +72,6 @@ func ArgsToInsertParams(rfltArgs reflect.Value, presetConds sql.FilterCondCollec
 						}
 					}
 				}
-				
 				if !fld_add && fld_v.GetIsSet() {
 					fld_val = fld_v
 					fld_add = true
@@ -123,7 +125,7 @@ func ArgsToUpdateParams(rfltArgs reflect.Value, presetConds sql.FilterCondCollec
 	field_ind := 0
 	for i := 0; i < rfltArgs_o.NumField(); i++ {						
 		if fld_v, ok := rfltArgs_o.Field(i).Interface().(fields.ValExt); ok {
-			if field_id, ok := arg_tp.Field(i).Tag.Lookup("json"); ok && (len(field_id)<=KEY_FLD_PREF_LEN || field_id[:KEY_FLD_PREF_LEN]!=KEY_FLD_PREF) {
+			if field_id, ok := arg_tp.Field(i).Tag.Lookup("json"); ok && (len(field_id)<=len(KEY_FLD_PREF) || field_id[:len(KEY_FLD_PREF)]!=KEY_FLD_PREF) {
 				
 				//check preset value				
 				if presetConds != nil {
@@ -171,7 +173,7 @@ func ArgsToUpdateParams(rfltArgs reflect.Value, presetConds sql.FilterCondCollec
 	
 	for i := 0; i < rfltArgs_o.NumField(); i++ {						
 		if fld_v, ok := rfltArgs_o.Field(i).Interface().(fields.ValExt); ok && fld_v.GetIsSet() {
-			if field_id, ok := arg_tp.Field(i).Tag.Lookup("json"); ok && len(field_id)>KEY_FLD_PREF_LEN && field_id[:KEY_FLD_PREF_LEN]==KEY_FLD_PREF {
+			if field_id, ok := arg_tp.Field(i).Tag.Lookup("json"); ok && len(field_id)>len(KEY_FLD_PREF) && field_id[:len(KEY_FLD_PREF)]==KEY_FLD_PREF {
 				//check preset value				
 				if presetConds != nil {
 					fld_found := false
@@ -193,9 +195,9 @@ func ArgsToUpdateParams(rfltArgs reflect.Value, presetConds sql.FilterCondCollec
 					if whereQuery != "" {
 						whereQuery += " AND "
 					}
-					whereQuery += field_id[KEY_FLD_PREF_LEN:] + "=$"+strconv.Itoa(field_ind+1)
+					whereQuery += field_id[len(KEY_FLD_PREF):] + "=$"+strconv.Itoa(field_ind+1)
 					fieldValues = append(fieldValues, fld_v)			
-					keys[field_id[KEY_FLD_PREF_LEN:]],_ = fld_v.Value()
+					keys[field_id[len(KEY_FLD_PREF):]],_ = fld_v.Value()
 					field_ind++			
 				}
 			}
@@ -241,7 +243,8 @@ func UpdateOnArgsWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod, re
 	lsn := GetDbLsn(conn)	
 	resp.AddModel(model.New_MethodResult_Model(par.RowsAffected(), lsn))	
 	//events
-	PublishEventsWithKeys(sock.GetToken(), keys, app, pm, lsn)
+
+	PublishEventsWithKeys(sock.GetID(), keys, app, pm, lsn)
 	
 	return nil
 }
@@ -273,6 +276,9 @@ func InsertOnArgsWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod, re
 	row_t := row_val.Type()
 	for i := 0; i < row_val.NumField(); i++ {
 		if field_id, ok := row_t.Field(i).Tag.Lookup("json"); ok {
+			if is_mode, ok := row_t.Field(i).Tag.Lookup("openMode"); ok && is_mode == "true"{
+				continue //mode for keys model
+			}
 			if ret_field_ids != "" {
 				ret_field_ids += ", "
 			}
@@ -291,6 +297,9 @@ func InsertOnArgsWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod, re
 		q += fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING %s", modelMD.Relation, field_ids, field_args, ret_field_ids)
 	}
 //fmt.Println("InsertOnArgs q=",q, "field_values=%v", f_values)	
+	if app.GetConfig().GetDebugQueries() {
+		app.GetLogger().Debugf("Query debug InsertOnArgsWithConn: %s, params: %v", q, f_values)
+	}
 
 	if err := conn.QueryRow(context.Background(), q, f_values...).Scan(row_fields...); err != nil {
 		if pgerr, ok := err.(*pgconn.PgError); ok && pgerr.Code == "23514" {
@@ -329,7 +338,7 @@ func InsertOnArgsWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod, re
 	}
 	lsn := GetDbLsn(conn)
 	resp.AddModel(model.New_MethodResult_Model(1, lsn))
-	PublishEventsWithKeys(sock.GetToken(), keys, app, pm, lsn)
+	PublishEventsWithKeys(sock.GetID(), keys, app, pm, lsn)
 	
 	return nil
 }
@@ -351,7 +360,6 @@ func DeleteOnArgKeys(app Applicationer, pm PublicMethod, resp *response.Response
 
 //Implements controller delete method
 func DeleteOnArgKeysWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod, resp *response.Response, sock socket.ClientSocketer, rfltArgs reflect.Value, modelMD *model.ModelMD, presetConds sql.FilterCondCollection) error {
-	
 	rfltArgs_o := reflect.Indirect(rfltArgs)
 	arg_tp := rfltArgs_o.Type()
 	
@@ -429,11 +437,13 @@ func DeleteOnArgKeysWithConn(conn *pgx.Conn, app Applicationer, pm PublicMethod,
 			return NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("pgx.Conn.Exec(): %v",err))
 		}
 	}
-	
+	if par.RowsAffected() == 0 {
+		return NewPublicMethodError(RESP_ER_DELETE_NOT_FOUND, ER_DELETE_NOT_FOUND)
+	}
 	lsn := GetDbLsn(conn)
 	resp.AddModel(model.New_MethodResult_Model(par.RowsAffected(), lsn))
 	//events
-	PublishEventsWithKeys(sock.GetToken(), keys, app, pm, lsn)
+	PublishEventsWithKeys(sock.GetID(), keys, app, pm, lsn)
 		
 	return nil
 }
@@ -488,18 +498,8 @@ func GetModelLsnValue(modelStruct interface{}) string {
 	return GetTextArgValByName(reflect.ValueOf(modelStruct), LSN_FIELD, "")
 }
 
-//Implements controller get_object method
-//rfltArgs holds condition fields
-func GetObjectOnArgs(app Applicationer, resp *response.Response, rfltArgs reflect.Value, modelMD *model.ModelMD, modelStruct interface{}, presetConds sql.FilterCondCollection) error {		
-	d_store,_ := app.GetDataStorage().(*pgds.PgProvider)
-	var conn_id pgds.ServerID
-	var pool_conn *pgxpool.Conn
-	pool_conn, conn_id, err := d_store.GetSecondary(GetModelLsnValue(modelStruct))
-	if err != nil {
-		return err
-	}
-	defer d_store.Release(pool_conn, conn_id)
-	conn := pool_conn.Conn()
+func GetObjectOnArgsWithConn(conn *pgx.Conn, app Applicationer, resp *response.Response, rfltArgs reflect.Value, modelMD *model.ModelMD, modelStruct interface{}, presetConds sql.FilterCondCollection) error {
+	copy_mode := false //shuld not return values for certain fields in this mode
 	
 	//fields with key values
 	field_vals := make([]interface{}, 0)	
@@ -517,6 +517,11 @@ func GetObjectOnArgs(app Applicationer, resp *response.Response, rfltArgs reflec
 				field_vals = append(field_vals, fld_v)			
 				cond_ind++			
 			}
+		}else if is_open_m, ok := arg_tp.Field(i).Tag.Lookup("openMode"); ok && is_open_m == "true" {
+			if fld_v, ok := rfltArgs_o.Field(i).Interface().(string); ok && fld_v == "copy" {
+				//copy mode
+				copy_mode = true
+			}
 		}
 	}
 	if len(field_vals) == 0 {
@@ -525,16 +530,26 @@ func GetObjectOnArgs(app Applicationer, resp *response.Response, rfltArgs reflec
 		//happens when http requests insert with get_object without key
 		return nil
 	}
-	
 	relation := modelMD.Relation
-	query_id := relation + "_get_object"
-	sql_s := fmt.Sprintf("SELECT %s FROM %s WHERE %s", modelMD.GetFieldList(app.GetEncryptKey()), relation, cond_sql)
-//fmt.Println("conn.Prepare", sql_s)
-	_, err = conn.Prepare(context.Background(), query_id, sql_s)
-	if err != nil {
-		return NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("pgx.Conn.Prepare(): %v",err))
+	
+	field_list := "" //NULL values for copy mode!!!
+	if copy_mode {
+		field_list = modelMD.GetCopyFieldList(app.GetEncryptKey())
+	}else{
+		field_list = modelMD.GetFieldList(app.GetEncryptKey())
 	}
-//fmt.Println("conn.Query", query_id)	
+	sql_s := fmt.Sprintf("SELECT %s FROM %s WHERE %s", field_list, relation, cond_sql)
+	
+	query_id := ""
+	if !copy_mode {
+		query_id = relation + "_get_object"
+		_, err := conn.Prepare(context.Background(), query_id, sql_s)
+		if err != nil {
+			return NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("pgx.Conn.Prepare(): %v",err))
+		}
+	}else{
+		query_id = sql_s
+	}
 	rows, err := conn.Query(context.Background(), query_id, field_vals...)	
 	if err != nil {
 		return NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("pgx.Conn.Query(): %v",err))
@@ -565,6 +580,22 @@ func GetObjectOnArgs(app Applicationer, resp *response.Response, rfltArgs reflec
 	
 	resp.AddModel(m)
 	return nil
+}		
+
+//Implements controller get_object method
+//rfltArgs holds condition fields
+func GetObjectOnArgs(app Applicationer, resp *response.Response, rfltArgs reflect.Value, modelMD *model.ModelMD, modelStruct interface{}, presetConds sql.FilterCondCollection) error {		
+	d_store,_ := app.GetDataStorage().(*pgds.PgProvider)
+	var conn_id pgds.ServerID
+	var pool_conn *pgxpool.Conn
+	pool_conn, conn_id, err := d_store.GetSecondary(GetModelLsnValue(modelStruct))
+	if err != nil {
+		return err
+	}
+	defer d_store.Release(pool_conn, conn_id)
+	conn := pool_conn.Conn()
+	
+	return GetObjectOnArgsWithConn(conn, app, resp, rfltArgs, modelMD, modelStruct, presetConds)
 }
 
 //Returns: query, total query and cond_params
@@ -573,7 +604,7 @@ func GetObjectOnArgs(app Applicationer, resp *response.Response, rfltArgs reflec
 func GetListQuery(conn *pgx.Conn, rfltArgs reflect.Value, scanModelMD *model.ModelMD, extraConds sql.FilterCondCollection, encryptKey string) (string, string, []interface{}, int, int, error) {
 	f_sep := ArgsFieldSep(rfltArgs)
 	orderby_sql := GetSQLOrderByFromArgsOrDefault(rfltArgs, f_sep, scanModelMD, encryptKey)	
-	limit_sql, from, cnt, err := GetSQLLimitFromArgs(rfltArgs, scanModelMD, conn, DEF_GET_LIST_LIMIT)
+	limit_sql, from, cnt, err := GetSQLLimitFromArgs(rfltArgs, scanModelMD, conn, 0)
 	if err != nil {
 		return "", "", nil, 0, 0, NewPublicMethodError(response.RESP_ER_INTERNAL, err.Error())
 	}
@@ -641,6 +672,21 @@ func GetListQuery(conn *pgx.Conn, rfltArgs reflect.Value, scanModelMD *model.Mod
 	return query, query_tot, cond_params, from , cnt, nil
 }
 
+//returns row fields of a given model structute
+func GetModelStructFields(modelStruct interface{}) (model.ModelRow, []interface{}) {
+	row := reflect.New(reflect.ValueOf(modelStruct).Elem().Type()).Interface().(model.ModelRow)
+	row_val := reflect.ValueOf(row).Elem()
+	row_fields := make([]interface{}, 0) //row_val.NumField()
+	row_t := row_val.Type()
+	for i := 0; i < row_val.NumField(); i++ {
+		if _, ok := row_t.Field(i).Tag.Lookup("json"); ok {
+			value_field := row_val.Field(i)
+			row_fields = append(row_fields, value_field.Addr().Interface())
+		}
+	}
+	return row, row_fields
+}
+
 //Executes query and returns it result as model
 func QueryResultToModel(modelMD *model.ModelMD, modelStruct interface{}, query string, queryTotal string, condValues []interface{}, conn *pgx.Conn, sysModel bool) (model.Modeler, error) {
 	var agg_values []*model.AggFunctionValue
@@ -678,7 +724,12 @@ func QueryResultToModel(modelMD *model.ModelMD, modelStruct interface{}, query s
 		return nil, NewPublicMethodError(response.RESP_ER_INTERNAL, fmt.Sprintf("QueryResultToModel pgx.Conn.Query(): %v, model: %s",err, modelMD.ID))
 	}
 	
-	m := &model.Model{ID: model.ModelID(modelMD.ID), AggFunctionValues: agg_values, SysModel: sysModel, Rows: make([]model.ModelRow, 0)}	
+	m := &model.Model{ID: model.ModelID(modelMD.ID),
+			AggFunctionValues: agg_values,
+			SysModel: sysModel,
+			Rows: make([]model.ModelRow, 0),
+			Metadata: modelMD,
+	}	
 	for rows.Next() {
 		row := reflect.New(reflect.ValueOf(modelStruct).Elem().Type()).Interface().(model.ModelRow)
 		row_val := reflect.ValueOf(row).Elem()
@@ -700,6 +751,7 @@ func QueryResultToModel(modelMD *model.ModelMD, modelStruct interface{}, query s
 	if err := rows.Err(); err != nil {
 		return nil, NewPublicMethodError(response.RESP_ER_INTERNAL, err.Error())
 	}
+	rows.Close()
 	/*if queryTotal == "" {
 		m.TotalCount = len(m.Rows)
 	}*/
@@ -730,9 +782,13 @@ func GetListOnArgs(app Applicationer, resp *response.Response, rfltArgs reflect.
 	defer d_store.Release(pool_conn, conn_id)
 	conn := pool_conn.Conn()
 
-	query, query_tot, where_params, from,cnt, err := GetListQuery(conn, rfltArgs, modelMD, presetConds, app.GetEncryptKey())
+	query, query_tot, where_params, from, cnt, err := GetListQuery(conn, rfltArgs, modelMD, presetConds, app.GetEncryptKey())
 	if err != nil {
 		return err
+	}
+	
+	if app.GetConfig().GetDebugQueries() {
+		app.GetLogger().Debugf("Query debug GetListOnArgs: %s, params: %v, from: %d, cnt: %d", query, where_params, from, cnt)
 	}
 	
 	//return AddQueryResult(resp, modelMD, modelStruct, query, query_tot, where_params, conn, false)		
@@ -771,8 +827,8 @@ func CompleteOnArgs(app Applicationer, resp *response.Response, rfltArgs reflect
 //pattern - pattern to match
 //there is also another argument with the same name as model field marked as matchField=true in tag
 func CompleteOnArgsWithConn(conn *pgx.Conn, app Applicationer, resp *response.Response, rfltArgs reflect.Value, scanModelMD *model.ModelMD, scanModel interface{}, presetConds sql.FilterCondCollection) error {
-	f_sep := ArgsFieldSep(rfltArgs)
-	orderby_sql := GetSQLOrderByFromArgsOrDefault(rfltArgs, f_sep, scanModelMD, app.GetEncryptKey())	
+	//f_sep := ArgsFieldSep(rfltArgs)
+	//orderby_sql := GetSQLOrderByFromArgsOrDefault(rfltArgs, f_sep, scanModelMD, app.GetEncryptKey())	
 	limit_sql, _, _, err := GetSQLLimitFromArgs(rfltArgs, scanModelMD, conn, METH_COMPLETE_DEF_COUNT)
 	if err != nil {
 		return NewPublicMethodError(response.RESP_ER_INTERNAL, err.Error())
@@ -796,23 +852,26 @@ func CompleteOnArgsWithConn(conn *pgx.Conn, app Applicationer, resp *response.Re
 		pattern += "$1||'%'"
 	}	
 	
-	cond_sql := ""	
+	var orderby_sql string
+	var cond_sql strings.Builder
 	cond_vals := make([]interface{},1)
 	t := v.Type()
 	for i := 0; i < v.NumField(); i++ {
 		if match_f, ok := t.Field(i).Tag.Lookup("matchField"); ok && match_f=="true" {
 			if field_id, ok := t.Field(i).Tag.Lookup("json"); ok {
 				if v_ic == 1 {
-					cond_sql = "coalesce(lower("+field_id+"),'') LIKE "+pattern
+					cond_sql.WriteString("coalesce(lower("+field_id+"),'') LIKE " + pattern)
+					orderby_sql = "POSITION(lower($1) IN lower(" + field_id + "))"
 				}else{
-					cond_sql = "coalesce("+field_id+",'') LIKE "+pattern
+					cond_sql.WriteString("coalesce("+field_id+",'') LIKE " + pattern)
+					orderby_sql = "POSITION($1 IN " + field_id + ")"
 				}
 				cond_vals[0] = GetTextArgValByName(rfltArgs, t.Field(i).Name, "")
 				break
 			}
 		}
 	}
-	if cond_sql == "" {
+	if cond_sql.Len() == 0 {
 		return NewPublicMethodError(response.RESP_ER_INTERNAL, ER_NO_WHERE)
 	}
 	
@@ -820,22 +879,25 @@ func CompleteOnArgsWithConn(conn *pgx.Conn, app Applicationer, resp *response.Re
 	if presetConds != nil {
 		field_ind := 1
 		for _, pr_f := range presetConds {
-			if cond_sql != "" {
-				cond_sql += " AND "
-			}
+			cond_sql.WriteString(" AND ")
+			
 			if pr_f.FieldID != "" {
-				cond_sql += pr_f.FieldID + " = $"+strconv.Itoa(field_ind+1)		
+				cond_sql.WriteString(pr_f.FieldID + " = $"+strconv.Itoa(field_ind+1))
 				cond_vals = append(cond_vals, pr_f.Value)
 				field_ind++
 			}else if  pr_f.Expression !="" {
 				//expression
-				cond_sql += pr_f.Expression
+				cond_sql.WriteString(pr_f.Expression)
 			}
 		}
 	}
 	
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s %s %s`, scanModelMD.GetFieldList(app.GetEncryptKey()), scanModelMD.Relation, cond_sql, orderby_sql, limit_sql)
-//fmt.Println("CompleteOnArgsWithConn query=",query, cond_vals[0])		
+	//orderby_sql
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s ORDER BY %s %s`, scanModelMD.GetFieldList(app.GetEncryptKey()), scanModelMD.Relation, cond_sql.String(), orderby_sql, limit_sql)
+	if app.GetConfig().GetDebugQueries() {
+		app.GetLogger().Debugf("Query debug CompleteOnArgsWithConn: %s, params: %v", query, cond_vals)
+	}
+	
 	return AddQueryResult(resp, scanModelMD, scanModel, query, "", cond_vals, conn, false)
 }
 
@@ -908,7 +970,7 @@ func ArgsFieldSep(rfltArgs reflect.Value) string {
 	return GetTextArgValByName(rfltArgs, "Field_sep", DEF_FIELD_SEP)
 }
 
-func AddStructFieldsToList(v reflect.Value, fields *[]interface{}, fieldIDs *string) error {	
+func AddStructFieldsToList(v reflect.Value, fields *[]interface{}, fieldIDs *strings.Builder, fieldPrefix string) error {	
 	//v := reflect.ValueOf(str)
 	for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -922,7 +984,7 @@ func AddStructFieldsToList(v reflect.Value, fields *[]interface{}, fieldIDs *str
 	t := v.Type()
 	for i := 0; i < v.NumField(); i++ {
 		if t.Field(i).Anonymous {
-			if err := AddStructFieldsToList(v.Field(i), fields, fieldIDs); err != nil {
+			if err := AddStructFieldsToList(v.Field(i), fields, fieldIDs, fieldPrefix); err != nil {
 				return err
 			}
 			
@@ -930,10 +992,11 @@ func AddStructFieldsToList(v reflect.Value, fields *[]interface{}, fieldIDs *str
 			if field_id, ok := t.Field(i).Tag.Lookup("json"); ok {
 				value_field := v.Field(i)
 				*fields = append(*fields, value_field.Addr().Interface())
-				if *fieldIDs != "" {
-					*fieldIDs += ","
+				
+				if fieldIDs.Len() > 0 {
+					fieldIDs.WriteString(",")
 				}
-				*fieldIDs += field_id
+				fieldIDs.WriteString(fieldPrefix + field_id)
 			}
 		}
 	}
@@ -944,11 +1007,11 @@ func AddStructFieldsToList(v reflect.Value, fields *[]interface{}, fieldIDs *str
 //	struct fields,
 //	list of field IDs for select query
 //	error if any
-func MakeStructRowFields(resultStruct interface{}) ([]interface{}, string, error){	
+func MakeStructRowFields(resultStruct interface{}, fieldPrefix string) ([]interface{}, string, error){	
 	fields := make([]interface{}, 0)
-	field_ids := ""
-	AddStructFieldsToList(reflect.ValueOf(resultStruct), &fields, &field_ids)
-	return fields, field_ids, nil
+	var field_ids strings.Builder
+	AddStructFieldsToList(reflect.ValueOf(resultStruct), &fields, &field_ids, fieldPrefix)
+	return fields, field_ids.String(), nil
 }
 
 /*

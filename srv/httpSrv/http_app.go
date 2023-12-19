@@ -6,9 +6,9 @@ import(
 	"fmt"
 	"os"
 	"io/ioutil"
-	"strings"
+	//"strings"
 
-	"ds/pgds"
+	"github.com/dronm/ds/pgds"
 	"osbe"
 	"osbe/socket"
 	"osbe/response"
@@ -36,7 +36,7 @@ type HTTPApplication struct {
 	serverTemplates map[string]*model.Model
 }
 
-//@ToDo: store menu common and for user is it exists
+//@ToDo: store menu common and for user if it exists
 func (a *HTTPApplication) AddMainMenuModel(sock socket.ClientSocketer, resp *response.Response, conn *pgx.Conn) error {
 //fmt.Println("AddMainMenuModel")	
 	sess := sock.GetSession()		
@@ -59,10 +59,14 @@ func (a *HTTPApplication) AddMainMenuModel(sock socket.ClientSocketer, resp *res
 	if err != nil && err != pgx.ErrNoRows {
 		return err		
 	}
-	menu.RawData = []byte(`<model id="MainMenu_Model">` + string(menu.RawData) + `</model>`)
+	menu.RawData = []byte(`<model id="MainMenu_Model" sysModel="1">` + string(menu.RawData) + `</model>`)
 	resp.AddModel(menu)
 	
 	return nil
+}
+
+func (a *HTTPApplication) InitServerTemplateCache() {
+	a.serverTemplates = make(map[string]*model.Model, 0)
 }
 
 //adds view template to all views
@@ -75,9 +79,10 @@ func (a *HTTPApplication) AddServerTemplate(sock *HTTPSocket, resp *response.Res
 	//add view template
 	if sock.ViewTemplateID != "" && a.UserTmplDir != "" && a.UserTmplExtension != "" {
 		if a.serverTemplates == nil {
-			a.serverTemplates = make(map[string]*model.Model,0)
+			a.InitServerTemplateCache()
 		}
 		
+		//server template cache
 		srv_tmpl_id := sock.ViewTemplateID + role_id
 		if m, ok := a.serverTemplates[srv_tmpl_id]; ok {
 			resp.AddModel(m)
@@ -106,11 +111,12 @@ func (a *HTTPApplication) AddServerTemplate(sock *HTTPSocket, resp *response.Res
 			if err != nil {
 				return err					
 			}
-fmt.Println("AddServerTemplate template_file=",template_file)			
+//fmt.Println("AddServerTemplate template_file=",template_file)			
 			model_data := fmt.Sprintf(`<model id="%s-template" templateId="%s" sysModel="1">%s</model>`,
 				sock.ViewTemplateID,
 				sock.ViewTemplateID,
-				strings.Replace(string(cont_b), "{{id}}", sock.ViewTemplateID, -1))
+				//strings.Replace(string(cont_b), "{{id}}", sock.ViewTemplateID, -1))
+				string(cont_b))
 			
 			a.serverTemplates[srv_tmpl_id] = &model.Model{ID: model.ModelID(sock.ViewTemplateID), SysModel: true, RawData: []byte(model_data)}
 			resp.AddModel(a.serverTemplates[srv_tmpl_id])

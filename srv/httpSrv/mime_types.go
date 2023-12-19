@@ -74,6 +74,7 @@ const (
 	MIME_TYPE_sig MIME_TYPE = "application/pgp-signature"
 	MIME_TYPE_doc MIME_TYPE = "application/msword"
 	MIME_TYPE_docx MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	MIME_TYPE_xlsx MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	
 )
 

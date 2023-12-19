@@ -21,10 +21,12 @@ type ModelMD struct {
 	ID string
 	Relation string
 	AggFunctions []*AggFunction
-	LimitCount int
-	LimitConstant string
+	LimitCount int //max count that can be served at one go, see sql_limit.go for details
+	LimitConstant string //deprecated, not used
+	DocPerPageCount int //default document per page
 	mx sync.RWMutex
 	FieldList string
+	CopyFieldList string
 	FieldDefOrder *string
 }
 func (m *ModelMD) GetFields() fields.FieldCollection {
@@ -32,12 +34,12 @@ func (m *ModelMD) GetFields() fields.FieldCollection {
 }
 
 //does both: makes field list for select (comma separated list m.FieldList) and makes m.FieldDefOrder (comma separated list for ORDER BY)
-func (m *ModelMD) initFieldOrder(encryptkey string) {
-	if m.FieldList == "" || m.FieldDefOrder == nil {
+func (m *ModelMD) initFieldOrder(encryptkey string, copyMode bool) {
+	if (m.FieldList == "" && !copyMode) || (m.CopyFieldList == "" && copyMode) || m.FieldDefOrder == nil {
 		var l_sel []string
 		var l_ord []string
 		m.mx.Lock()
-		if m.FieldList == "" {
+		if (m.FieldList == "" && !copyMode) || (m.CopyFieldList == "" && copyMode) {
 			l_sel = make([]string, len(m.Fields))
 		}
 		if m.FieldDefOrder == nil {
@@ -46,8 +48,12 @@ func (m *ModelMD) initFieldOrder(encryptkey string) {
 		for _, fld := range m.Fields {
 			fld_id := fld.GetId()
 			if l_sel != nil {
-				if encryptkey != "" && fld.GetEncrypted() {				
+				if copyMode && fld.GetNoValueOnCopy() {
+					l_sel[fld.GetOrderInList()] = "NULL AS " + fld_id //do not copy value!
+				
+				}else if encryptkey != "" && fld.GetEncrypted() {				
 					l_sel[fld.GetOrderInList()] = fmt.Sprintf(`PGP_SYM_DECRYPT(%s, "%s") AS %s`, fld_id, encryptkey, fld_id)
+					
 				}else{
 					l_sel[fld.GetOrderInList()] = fld_id
 				}
@@ -64,20 +70,33 @@ func (m *ModelMD) initFieldOrder(encryptkey string) {
 				}
 			}
 		}
-		if l_sel != nil {
+		if l_sel != nil && !copyMode {
 			m.FieldList = strings.Join(l_sel, ",")
+			
+		}else if l_sel != nil && copyMode {
+			m.CopyFieldList = strings.Join(l_sel, ",")
 		}
+		
 		if l_ord != nil {
 			_s := ""
 			m.FieldDefOrder = &_s //initialize
+			//var sb strings.Builder
+			//sb_first := true
 			for _, o := range l_ord {
 				if o != "" {
 					if _s != "" {
 						_s+= ","
 					}
+					/*if !sb_first {
+						sb.WriteString(",")
+					}else{
+						sb_first = true
+					}*/
 					_s+= o
+					//sb.WriteString(o)
 				}
 			}
+			//_s = sb.String()
 		}		
 		m.mx.Unlock()		
 	}
@@ -85,24 +104,13 @@ func (m *ModelMD) initFieldOrder(encryptkey string) {
 
 //fields as comma separated list for sql used in select query
 func (m *ModelMD) GetFieldList(encryptkey string) string {
-	/*
-	if m.FieldList == "" {
-		m.mx.Lock()
-		l := make([]string, len(m.Fields))
-		for _, fld := range m.Fields {
-			fld_id := fld.GetId()
-			if encryptkey != "" && fld.GetEncrypted() {				
-				l[fld.GetOrderInList()] = fmt.Sprintf(`PGP_SYM_DECRYPT(%s, "%s") AS %s`, fld_id, encryptkey, fld_id)
-			}else{
-				l[fld.GetOrderInList()] = fld_id
-			}
-		}
-		m.FieldList = strings.Join(l, ",")
-		m.mx.Unlock()		
-	}
-	*/
-	m.initFieldOrder(encryptkey)
+	m.initFieldOrder(encryptkey, false)
 	return m.FieldList
+}
+
+func (m *ModelMD) GetCopyFieldList(encryptkey string) string {
+	m.initFieldOrder(encryptkey, true)
+	return m.CopyFieldList
 }
 
 //ORDER BY FIELD1 DIR1, FIELD2 DIR2, ...
@@ -134,7 +142,7 @@ func (m *ModelMD) GetFieldDefOrder(encryptkey string) string {
 		m.mx.Unlock()		
 	}
 	*/
-	m.initFieldOrder(encryptkey)
+	m.initFieldOrder(encryptkey, false)
 	return *m.FieldDefOrder
 }
 

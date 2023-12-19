@@ -6,10 +6,9 @@ import (
 	"context"
 	"time"
 	
-	"waitStrat"
-	
 	"osbe/logger"
 	
+	"github.com/dronm/waitStrat"
 	"github.com/jackc/pgx/v4/pgxpool"	
 	"github.com/jackc/pgconn"
 )
@@ -97,6 +96,13 @@ func (s *EvntSrv) OnNotification(_ *pgconn.PgConn, n *pgconn.Notification) {
 				params = fmt.Sprintf(`{"argv":%s}`, params)
 			}			
 			go s.OnEvent(n.Channel, []byte(params))
+			
+			//to all others
+			if len(params) > 0 {
+				//strip curly braces
+				params = n.Payload[1:len(n.Payload)-1]
+			}			
+			s.PublishEvent(n.Channel, params)
 			return
 		}
 	}

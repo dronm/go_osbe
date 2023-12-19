@@ -31,8 +31,9 @@ type ViewHTML struct {
 	BeforeRender OnBeforeRenderProto
 	
 	DebugDir string
+	Debug bool //if true, prints debug information
 	XMLDebug bool //if true, xml data will be saved to DebugDir
-	HTMLDebug bool //if true, xml data will be saved to DebugDir
+	HTMLDebug bool //if true, html data will be saved to DebugDir
 }
 
 //Parameters:
@@ -86,6 +87,11 @@ func (v *ViewHTML) SetParam(paramID string, val interface{}) error {
 		if v.HTMLDebug, ok = val.(bool); !ok {
 			return errors.New("parameter HTMLDebug must be of bool type")
 		}
+
+	case "Debug":
+		if v.Debug, ok = val.(bool); !ok {
+			return errors.New("parameter Debug must be of bool type")
+		}
 		
 	}
 	return nil
@@ -115,7 +121,7 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 
 	//render xml
 	//xml_data, err := view.Render(viewXML.VIEW_ID, sock, resp)
-	xml_data, err := xml.ModelsToXML(resp.Models)
+	xml_data, err := xml.Marshal(resp.Models, false)
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +159,9 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.Ex.%d.%s.%s", template_id, err_code, role_id, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: error + role + templ")
+			}
 		}
 	}
 	
@@ -161,6 +170,9 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.Ex.%d.%s", template_id, err_code, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: error + templ")
+			}
 		}
 	}
 	
@@ -169,16 +181,20 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.%s.%s", template_id, role_id, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: templ + role")
+			}
 		}
 	}
 
 	//templ
-//fmt.Println("ViewHTML.Render() template_id=", template_id, "err_code=",err_code,"template_file=",template_file)		
 	if template_file == "" && err_code == 0 && template_id != "" {
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.%s", template_id, v.TemplateExtension)
-//fmt.Println("ViewHTML.Render() fl=", fl)				
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: templ")
+			}			
 		}
 	}
 
@@ -187,6 +203,9 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.Ex.%d.%s.%s", sock_http.TransformClassID, err_code, role_id, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: error + v + role")
+			}						
 		}
 	}
 
@@ -195,6 +214,9 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.Ex.%d.%s", sock_http.TransformClassID, err_code, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: error + v")
+			}									
 		}
 	}
 
@@ -203,23 +225,31 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.%s.%s", sock_http.TransformClassID, role_id, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: v + role")
+			}									
 		}
 	}
 
 	//v
-	//&& err_code == 0 
 	if template_file == "" {
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.%s", sock_http.TransformClassID, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: v")
+			}									
 		}
 	}
 
-	//even on error
+	//on error
 	if template_file == "" && err_code != 0 && template_id != "" {
 		fl := v.UserViewDir + "/" +  fmt.Sprintf("%s.%s", template_id, v.TemplateExtension)
 		if view.FileExists(fl) {
 			template_file = fl
+			if v.Debug {
+				fmt.Println("ViewHTML debug: template_id")
+			}									
 		}
 	}
 
@@ -231,7 +261,11 @@ func (v *ViewHTML) Render(sock socket.ClientSocketer, resp *response.Response) (
 	if template_file == "" {
 		return nil, errors.New("default server template not found in server template directory")
 	}
-//fmt.Println("ViewHTML.Render() template_file=", template_file)	
+	
+	if v.Debug {
+		fmt.Println("ViewHTML debug: template_file=", template_file)
+	}									
+
 	//transformation	
 	html_data, err := v.TemplateTransform(xml_data, "", template_file, "")
 	if err != nil {

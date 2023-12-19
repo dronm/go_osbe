@@ -263,13 +263,11 @@ func (s *WSServer) HandleConnection(socket socket.ClientSocketer) {
 		s.OnHandleServerError(s, socket, "", viewJSON.VIEW_ID)//error always in JSON
 		return
 	}
-
-	conn := socket.GetConn()
+	
 	for {	
-		select {
-		case _= <-socket.GetDemandLogout():
-			break
-		default:
+		conn := socket.GetConn()
+		if conn == nil {
+			return;
 		}
 		
 		header, err := ws.ReadHeader(conn)
@@ -313,11 +311,11 @@ func (s *WSServer) HandleConnection(socket socket.ClientSocketer) {
 			return
 		}		
 	}
-s.Logger.Debug("Out of HandleConnection loop")	
 }
 
 
 func (s *WSServer) SendToClient(sock socket.ClientSocketer, msg []byte) error {
+//s.Logger.Debugf("WSServer SendToClient sock.ID=%s, msg=%s", sock.GetID(), string(msg))	
 	err := wsutil.WriteServerText(sock.GetConn(), msg)
 	if err != nil {
 		s.Logger.Errorf("%s, wsutil.WriteServerText: %v", sock.GetDescr(), err)
@@ -328,13 +326,15 @@ func (s *WSServer) SendToClient(sock socket.ClientSocketer, msg []byte) error {
 }
 
 func (s *WSServer) CloseSocket(sock socket.ClientSocketer){
+	id := sock.GetID()
+	token := sock.GetToken()
 	if s.OnCloseSocket != nil {
 		s.OnCloseSocket(sock)
 	}
 	//s.OnDestroySession(sock.GetToken())
-	s.ClientSockets.Remove(sock.GetToken())
+	s.ClientSockets.Remove(sock)
 	s.Statistics.OnClientDisconnceted()
-	s.Logger.Debug("CloseSocket, Socket count:",s.ClientSockets.Len())	
+	s.Logger.Debugf("CloseSocket, id=%s, token = %s, socket count:%d", id, token, s.ClientSockets.Len())	
 }
 
 func (s *WSServer) GetClientSockets() *socket.ClientSocketList{

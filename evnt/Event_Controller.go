@@ -150,19 +150,8 @@ func (pm *Event_Controller_publish) Run(app osbe.Applicationer, serv srv.Server,
 		if sock_list == nil {
 			continue
 		}
-		/* OLD!
 		for sock_item := range sock_list.Iter() {
-			 if sock_item.Socket.GetToken() != emitter_id {
-			 	if sock_item_s, ok := sock_item.Socket.(*EvntSocket); ok {
-				 	if ok := sock_item_s.Events.HasEvent(args.Id); ok {
-					 	app.SendToClient(s, sock_item.Socket, sock_resp, viewJSON.VIEW_ID)//"ViewJSON"
-					}
-				}
-			 }
-		}
-		*/
-		for sock_item := range sock_list.Iter() {
-			 if sock_item.GetToken() != emitter_id {
+			 if sock_item.GetID() != emitter_id {
 			 	if sock_item_s, ok := sock_item.(*EvntSocket); ok {
 				 	if ok := sock_item_s.Events.HasEvent(args.Id); ok {
 					 	app.SendToClient(s, sock_item, sock_resp, viewJSON.VIEW_ID)//"ViewJSON"

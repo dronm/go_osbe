@@ -49,3 +49,14 @@ Model initialization GenMetadata() - from md.go init(), not from controllers!!!
 8) no ControllerID, ModelID types. make them strings
 
 
+18/12/22
+GetVersion()
+
+
+28/09/23
+MainMenuContent_Model viewid turn field to Int type!!! because of ViewAjx.js
+<field id="viewid" dataType="Int" />
+
+01/12/23 repos added
+
+19/12/23 srv/httpSrv/tags.go Modified added to TagLink and TagScript

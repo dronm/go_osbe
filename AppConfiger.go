@@ -4,9 +4,9 @@ import (
 	"osbe/config"
 )
 
+// AppConfiger is an application configuration
+// interface. Realization is held by Application object.
 type AppConfiger interface {
-	ReadConf(fileName string) error
-	WriteConf(fileName string) error
 	GetDb() config.DbStorage
 	GetWSServer() string
 	GetTLSWSServer() string
@@ -21,6 +21,7 @@ type AppConfiger interface {
 	GetDefaultLocale() string
 	GetTechMail() string
 	GetAuthor() string
+	GetDebugQueries() bool
 }
 
 

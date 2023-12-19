@@ -7,51 +7,50 @@ import (
 
 	"osbe/permission"
 
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/jackc/pgx/v4"
 )
 
 var manager = &Manager{}
 
 type Manager struct {
-	DbPool *pgxpool.Pool
+	DbConnStr string
 	mx sync.RWMutex
 	rules permission.PermRules
 }
 
 func (mng *Manager) Reload() error{
+	conn, err := pgx.Connect(context.Background(), mng.DbConnStr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(context.Background())
+	
 	mng.mx.Lock()
 	defer mng.mx.Unlock()
 
 	mng.rules = make(permission.PermRules)
-	return mng.DbPool.QueryRow(context.Background(), `SELECT rules FROM permissions LIMIT 1`).Scan(&mng.rules)
+	if err := conn.QueryRow(context.Background(), `SELECT rules FROM permissions LIMIT 1`).Scan(&mng.rules); err != nil {
+		return err
+	}
+	
+	return nil
 }
 
 //controller=no _Controller postfix!!!
 func (mng *Manager) IsAllowed(role, controller, method string) bool{
-
-	if role == "" {
-		role = permission.DEFAULT_ROLE
-	}
-//fmt.Println("role=", role, "controller=", controller,"method=",method)		
-	if mng_contr, ok := mng.rules[role]; ok {
-		if mng_meth, ok := mng_contr[controller]; ok {
-			if mng_allowed, ok := mng_meth[method]; ok {
-				return mng_allowed
-			}
-		}
-	}
-	return false
+	return mng.rules.IsAllowed(role, controller, method)
 }
 
-//first parameter: *pgxpool.Pool
-func (mng *Manager) InitManager(provParams []interface{}) (err error) {
-	if len(provParams)<1 {
-		return errors.New("Missing parameters: *pgxpool.Pool")
+// InitManager initializes permission manager
+// First parameter: ConnectionString string in pg format: postgresql://{USER_NAME}@{HOST}:{PORT}/{DATABASE}
+func (mng *Manager) InitManager(mngParams []interface{}) (err error) {
+	if len(mngParams) < 1 {
+		return errors.New("InitManager missing parameter: pg connection string")
 	}	
-	var ok bool
-	mng.DbPool, ok = provParams[0].(*pgxpool.Pool)
+	ok := false
+	mng.DbConnStr, ok = mngParams[0].(string)
 	if !ok {
-		return errors.New("Parameter must be of type *pgxpool.Pool")
+		return errors.New("InitManager db connection parameter must be a string")
 	}
 	mng.Reload()
 	return nil

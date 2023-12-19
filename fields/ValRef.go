@@ -29,7 +29,7 @@ func (v *ValRef) SetValue(vRef Ref){
 	v.IsNull = false
 }
 
-func (v ValRef) SetNull(){
+func (v *ValRef) SetNull(){
 	v.TypedValue = Ref{}
 	v.IsSet = true
 	v.IsNull = true

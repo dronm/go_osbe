@@ -34,7 +34,7 @@ func (v *ValInt) SetValue(vI int64){
 	v.IsNull = false
 }
 
-func (v ValInt) SetNull(){
+func (v *ValInt) SetNull(){
 	v.TypedValue = 0
 	v.IsSet = true
 	v.IsNull = true

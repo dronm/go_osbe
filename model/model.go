@@ -38,6 +38,7 @@ type Modeler interface {
 	GetRowCount() int
 	GetRawData() []byte
 	GetAggFunctionValues() []*AggFunctionValue
+	GetMetadata() *ModelMD
 }
 
 type Model struct {
@@ -51,6 +52,7 @@ type Model struct {
 	RawData []byte `json:"-"`
 	Rows []ModelRow `json:"rows"`
 	AggFunctionValues []*AggFunctionValue
+	Metadata *ModelMD `json:"-"`
 }
 
 func (m *Model) GetID() ModelID {
@@ -95,6 +97,10 @@ func (m *Model) GetRows() []ModelRow {
 
 func (m *Model) GetRawData() []byte {
 	return m.RawData
+}
+
+func (m *Model) GetMetadata() *ModelMD {
+	return m.Metadata
 }
 
 func (m *Model) GetAggFunctionValues() []*AggFunctionValue {

@@ -1,5 +1,8 @@
 package osbe
 
+// This file contains Controller interface description and parsing external
+// command functions.
+
 import(
 	"encoding/json"	
 	"errors"	
@@ -8,20 +11,21 @@ import(
 	"fmt"
 )
 
-//Command function
+// ExtCommand represents external client query command. 
 type ExtCommand struct {
-	Func string `json:"func"` //function Controller.method
+	Func string `json:"func"` 		//function Controller.method
 	Query_id string `json:"query_id"`
 	View_id string `json:"view_id"`
 }
 
-
+// Controller is an application controller interface.
 type Controller interface {
 	//InitPublicMethods()
 	GetPublicMethod(PublicMethodID) (PublicMethod, error)
 	GetID() string
 }
 
+// Base_Controller is a parent structure for all controllers.
 type Base_Controller struct {
 	ID string
 	PublicMethods PublicMethodCollection	
@@ -36,14 +40,14 @@ func (c *Base_Controller) GetPublicMethod(publicMethodID PublicMethodID) (Public
 	return nil, errors.New(fmt.Sprintf(ER_CONTOLLER_METH_NOT_DEFINED, string(publicMethodID), string(c.GetID())))
 }
 
-
+// ControllerCollection is a list of application controllers.
 type ControllerCollection map[string] Controller
 
-//parses external command from JSON string of arguments
-//argument "func" at least MUST exist!
-//Returns:
+// ParseJSONCommand parses external command from JSON string of arguments
+// argument "func" at least MUST exist!
+// Returns:
 //	public method interface,
-//	argv - all parsed arguments not validated,
+//	argv - all parsed arguments not validated, returned as reflect.Value,
 //	query id
 //	view id
 //	error if any
@@ -59,7 +63,7 @@ func (c *ControllerCollection) ParseJSONCommand(payload []byte) (Controller, Pub
 	
 }
 
-//parses command from function string of type ControllerID.MethodID
+// ParseFunctionCommand parses command from function string of type ControllerID.MethodID.
 func (c *ControllerCollection) ParseFunctionCommand(fn string, argsPayload []byte) (contr Controller, pm PublicMethod, argv reflect.Value, err error) {
 	//
 	p := strings.Index(fn, ".")
@@ -70,7 +74,7 @@ func (c *ControllerCollection) ParseFunctionCommand(fn string, argsPayload []byt
 	return c.ParseCommand(fn[:p], fn[p+1:], argsPayload)
 }
 
-//parses command from separated controller,method IDs
+// ParseCommand parses command from separated controller,method IDs
 func (c *ControllerCollection) ParseCommand(controllerID string, methodID string, argsPayload []byte) (contr Controller, pm PublicMethod, argv reflect.Value, err error) {
 	//check controller
 	ok := false

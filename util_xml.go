@@ -12,7 +12,7 @@ import (
 	
 	"osbe/response"
 	"osbe/model"
-	"ds/pgds"
+	"github.com/dronm/ds/pgds"
 	
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"

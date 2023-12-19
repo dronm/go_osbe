@@ -29,7 +29,7 @@ func (v *ValText) SetValue(vStr string){
 	v.IsNull = false
 }
 
-func (v ValText) SetNull(){
+func (v *ValText) SetNull(){
 	v.TypedValue = ""
 	v.IsSet = true
 	v.IsNull = true

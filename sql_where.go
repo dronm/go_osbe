@@ -29,8 +29,8 @@ const (
 	JOIN_PAR_OR = "o"
 )
 
-type conditionJoin int
-func (c conditionJoin) sql() string {
+type ConditionJoin int
+func (c ConditionJoin) Sql() string {
 	switch c {
 	case CONDITION_JOIN_AND:
 		return "AND"
@@ -41,16 +41,16 @@ func (c conditionJoin) sql() string {
 }
 
 const (
-	CONDITION_JOIN_AND conditionJoin = iota
+	CONDITION_JOIN_AND ConditionJoin = iota
 	CONDITION_JOIN_OR
 )
 
-type argConditions struct {
+type ArgConditions struct {
 	Fields []string
 	Signs []sql.SQLCondition
 	Values []interface{}
 	InsCases []bool
-	Joins []conditionJoin
+	Joins []ConditionJoin
 }
 
 //parses reflect.Value, extracts data from cond_fields, cond_sgns, cond_ic, cond_vals, cond_joins
@@ -59,9 +59,9 @@ type argConditions struct {
 //cond_sgns - slice of sql.SQLCondition
 //cond_vals - slice of interface{}
 //cond_ic - slice of []bool
-func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadata fields.FieldCollection) (*argConditions, error) {
+func ParseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadata fields.FieldCollection) (*ArgConditions, error) {
 	if ids := GetTextArgValByName(rfltArgs, "Cond_fields", ""); ids != "" {
-		arg_conds := argConditions{}
+		arg_conds := ArgConditions{}
 		//fields
 		arg_conds.Fields = strings.Split(ids, fieldSep) //fld_t.GetValue()
 		f_cnt := len(arg_conds.Fields)
@@ -122,7 +122,7 @@ func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadat
 		}
 
 		//joins
-		arg_conds.Joins = make([]conditionJoin, f_cnt) //defaults AND
+		arg_conds.Joins = make([]ConditionJoin, f_cnt) //defaults AND
 		if joins := GetTextArgValByName(rfltArgs, "Cond_joins", ""); joins != "" {		
 			join_str := strings.Split(joins, fieldSep)			
 			for i := 0; i < f_cnt; i++ {
@@ -132,21 +132,23 @@ func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadat
 				}
 			}		
 		}
-		
-		//values		
-		if vals := GetTextArgValByName(rfltArgs, "Cond_vals", ""); vals != "" {		
+		//values				
+		vals := GetTextArgValByName(rfltArgs, "Cond_vals", "")
+		if vals == "" && f_cnt == 1 {
+			//one field with null value
+			vals = "null"
+		}
+		if vals != "" {		
 			vals_str := strings.Split(vals, fieldSep)
 			if f_cnt != len(vals_str) {
 				//field count mismatch
 				return nil, errors.New("2 "+ER_SQL_WHERE_FILED_CNT_MISMATCH)
 			}
 			arg_conds.Values = make([]interface{}, f_cnt)
-//fmt.Println("vals_str=", vals_str)			
 			//cast string value to real field type value
-			valid_err := ""
+			var valid_err strings.Builder
 			var md_field_ids map[string]fields.Fielder //case insensetive field ids
 			for ind, val_str := range vals_str {
-//fmt.Println("val_str=", val_str)						
 				if len(val_str) == 0 {
 					appendError(&valid_err, "field value not set")
 					continue
@@ -185,8 +187,11 @@ func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadat
 					var err error
 					var val_i interface{}
 					
+					if strings.ToUpper(val_str) == "NULL" {
+						val_i = nil //for all types
+						
 					//might be wild char signs % -at the begining and at the end of the val_str!!!
-					if val_str[0:1]=="%" || val_str[len(val_str)-1:] == "%" {
+					}else if val_str[0:1]=="%" || val_str[len(val_str)-1:] == "%" {
 						//treat as string
 						//@ToDo validate for injections!
 						val_i = val_str						
@@ -240,12 +245,20 @@ func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadat
 							if err == nil {
 								val_i = val_str
 							}
+							if len(val_str) == 10 {
+								//cast to date
+								arg_conds.Fields[ind] += "::date"
+							}
+							
 						case fields.FIELD_TYPE_DATETIMETZ:
 							err = fields.ValidateDateTimeTZ(model_f.(fields.Fielder), val_str)
 							if err == nil {
 								val_i = val_str
 							}
-
+							if len(val_str) == 10 {
+								//cast to date
+								arg_conds.Fields[ind] += "::date"
+							}
 							
 						default:
 							err = errors.New(fmt.Sprintf("'%s' unsupported condition field type",arg_conds.Fields[ind])) 
@@ -260,8 +273,8 @@ func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadat
 					return nil, errors.New(fmt.Sprintf("parseSQLWhereFromArgs(): field %s not found in model", id))
 				}	
 			}
-			if valid_err != "" {
-				return nil, errors.New(valid_err)
+			if valid_err.Len() > 0 {
+				return nil, errors.New(valid_err.String())
 			}
 		}
 		
@@ -283,7 +296,7 @@ func parseSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMetadat
 //	vals_s slice of validated, sanatized parameters
 //	error
 func GetSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMD *model.ModelMD, extraConds sql.FilterCondCollection) (string, []interface{}, error) {
-	arg_conds, err := parseSQLWhereFromArgs(rfltArgs, fieldSep, modelMD.GetFields())
+	arg_conds, err := ParseSQLWhereFromArgs(rfltArgs, fieldSep, modelMD.GetFields())
 	if err != nil {
 		return "", nil, err
 	}
@@ -301,8 +314,20 @@ func GetSQLWhereFromArgs(rfltArgs reflect.Value, fieldSep string, modelMD *model
 		or_join_exists := false
 		cond_sql := ""
 		for i, fld := range arg_conds.Fields {						
-			sql.AddCondExpr(fld, arg_conds.Signs[i], arg_conds.InsCases[i], i, arg_conds.Joins[i].sql(), &cond_sql)
-			cond_cnt++
+			if arg_conds.Values[i] == nil  && (arg_conds.Signs[i] == sql.SGN_SQL_I || arg_conds.Signs[i] == sql.SGN_SQL_IN) {
+				//null cases
+				if i > 0 {
+					cond_sql += " "
+				}
+				cond_sql += fmt.Sprintf("(%s %s NULL)", fld, arg_conds.Signs[i])
+				//remove nil
+				arg_cond_values[i] = arg_cond_values[len(arg_cond_values) - 1]
+				arg_cond_values = arg_cond_values[:len(arg_cond_values) - 1]
+//fmt.Println("len(arg_cond_values)=", len(arg_cond_values))				
+			}else{
+				sql.AddCondExpr(fld, arg_conds.Signs[i], arg_conds.InsCases[i], i, arg_conds.Joins[i].Sql(), &cond_sql)
+				cond_cnt++
+			}
 			if arg_conds.Joins[i] == CONDITION_JOIN_OR && !or_join_exists {
 				or_join_exists = true
 			}
